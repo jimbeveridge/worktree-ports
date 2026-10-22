@@ -153,3 +153,4 @@ dist/
 *.tgz
 .superpowers/
 .claude/scheduled_tasks.lock
+docs/superpowers/plans/
