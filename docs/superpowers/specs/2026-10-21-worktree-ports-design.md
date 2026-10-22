@@ -110,7 +110,8 @@ resolved port.
 **Never overwrite.** `exec` only fills in variables that are unset in its own
 environment. When an existing value differs from the rendered one, it warns on
 stderr so it's clear which one won. A CI job or a developer that pins `PORT`
-keeps it.
+keeps it. The one exception is a `PORT` set by an outer `exec --port`, which an
+inner `exec --port` may replace (§8a).
 
 ## 6. Repository config
 
@@ -135,7 +136,6 @@ claim (§7b), so two sub-projects never share a block.
   "mainCheckout": "default",
   "env": {
     "API_ADDR": "127.0.0.1:{api}",
-    "PORT": "{web}",
     "API_ORIGIN": "http://127.0.0.1:{api}",
     "WORKTREE_ROOT": "{root}"
   },
@@ -323,8 +323,8 @@ a one-time port change, never a collision. Linked worktrees can avoid it with
 ```
 worktree-ports show    [--json] [--config <path>]
 worktree-ports status  [--json] [--config <path>]
-worktree-ports env     [--config <path>]
-worktree-ports exec    [--verify] [--config <path>] -- <command> [args...]
+worktree-ports env     [--port <service>] [--config <path>]
+worktree-ports exec    [--port <service>] [--verify] [-v | --verbose] [--config <path>] -- <command> [args...]
 worktree-ports list    [--json]
 worktree-ports release [--config <path>]
 worktree-ports prune   [--unused-for <duration>] [--dry-run]
@@ -346,6 +346,7 @@ worktree-ports --version | --help
 - **`env`** prints shell-quoted `export KEY=value` lines for every rendered
   variable, for `eval "$(worktree-ports env)"`. Unlike `exec`, these lines
   overwrite whatever the shell has; that's the point of evaluating them.
+  `--port <service>` adds the two lines `exec --port` would set (§8a).
 - **`exec -- <command>`** runs the command with the rendered env merged in
   (never overwriting, §5) and exits with its result.
   - It forwards `SIGTERM` to the child.
@@ -355,6 +356,8 @@ worktree-ports --version | --help
     "force quit". The wrapper ignores `SIGINT` itself while the child runs,
     so it can still report the child's exit code.
   - With no config found, it warns and runs the command unchanged.
+- **`exec --port <service>`** also sets `PORT` to that service's port, for
+  this child only (§8a).
 - **`exec --verify`** first asks the server at `verify.url` who it belongs to:
   - **match** (the field equals `verify.expect`): start the command.
   - **mismatch** (the field names another checkout): refuse, exit 1. This is
@@ -376,6 +379,75 @@ worktree-ports --version | --help
 - **`prune`**: cleanup as described in §7d, reporting what it removed (or
   would remove, with `--dry-run`).
 
+### 8a. `--port`
+
+`PORT` is the conventional name for "the port this process listens on", read
+by Next.js, many other dev servers, and hosting platforms. That makes it a
+per-process value, and it can't live in the config's `env` map: every process
+run under `exec` receives the whole map, so a backend that honours `PORT`
+would bind to the frontend's port. A usability test of the README's
+integration checklist hit exactly this. `--port` sets `PORT` where each server
+is started instead, on the command line that starts it:
+
+```sh
+worktree-ports exec --port web -- next dev               # the frontend
+worktree-ports exec --port api -- go run ./cmd/server    # the backend
+```
+
+The first starts Next.js with `PORT` set to the `web` service's port, the
+second starts the Go server with `PORT` set to the `api` service's port. These
+are the commands a project puts in its own launch scripts (an npm script, a
+`Makefile` target); `worktree-ports.json` doesn't change.
+
+- The flag adds to the rendered `env` map; it never replaces it. The frontend
+  above still receives `API_ORIGIN` and every other rendered variable.
+- It always sets the variable named `PORT`. A server whose own port variable
+  has another name keeps getting it from `env`, which is safe as long as only
+  that server reads the name.
+- The value is the service's resolved port in the current context (§5): the
+  claimed block's port in a linked worktree, the `default` in the main
+  checkout and CI.
+- If the config's `env` also renders `PORT`, the flag's value is used for this
+  child instead.
+- An unknown service name exits 1, naming the declared services.
+- With `WORKTREE_PORTS=off`, or no config found, `exec` adds nothing, `PORT`
+  included.
+
+**Nesting.** `exec` often runs inside `exec` without anyone planning it: a
+wrapped `npm run e2e` whose test runner starts a wrapped `npm run web`.
+Without `--port` that's harmless, since the inner `exec` sees the values it
+would set and keeps them. With `--port` it isn't: the inner
+`exec --port api` would find the outer `PORT={web}` already set and, by the
+never-overwrite rule, keep it. So `exec --port` also sets
+`WORKTREE_PORTS_PORT` to the value it gave `PORT`, marking it as the tool's.
+For `PORT` only, the rule becomes:
+
+| `PORT` in the inherited environment            | `exec --port <service>`                                          |
+| ---------------------------------------------- | ---------------------------------------------------------------- |
+| unset                                          | sets `PORT` and `WORKTREE_PORTS_PORT`                            |
+| equal to `WORKTREE_PORTS_PORT` (set by `exec`) | replaces both, silently                                          |
+| anything else (a person or CI pinned it)       | keeps it, warning as usual when it differs from the service port |
+
+`WORKTREE_PORTS_PORT` is set only together with `PORT`, so a kept `PORT`
+leaves the marker as it was. Every other variable keeps the plain
+never-overwrite rule. `exec` without `--port` doesn't read or change either
+variable beyond what `env` renders.
+
+`env --port <service>` prints `export PORT=…` and
+`export WORKTREE_PORTS_PORT=…` after the rendered lines, so an `exec --port`
+run later from that shell may replace them. If `env` also renders `PORT`,
+that line is left out, so `PORT` is printed once.
+
+A `PORT` that an outer `exec` rendered from `env` (no `--port`) carries no
+marker, so an inner `exec --port` keeps it with a warning. That is the failure
+this flag exists to fix, left in place for configs that still put `PORT` in
+`env`; decision 3 steers `PORT` out of `env` instead. Such configs stay valid,
+with no new warning and no schema change.
+
+`--port` is a CLI feature: `resolvePorts` and `mergeEnv` keep their
+signatures, and the README's integration checklist recommends `--port` in
+place of its warning about shared `PORT`.
+
 Exit codes:
 
 | Code           | Meaning                                                                                                           |
@@ -386,6 +458,45 @@ Exit codes:
 | `2`            | Usage error (bad flags, missing command).                                                                         |
 | `127`          | The child failed to spawn.                                                                                        |
 | `128 + n`      | The child was killed by signal `n`.                                                                               |
+
+### 8b. `--verbose`
+
+`exec -v` (or `--verbose`) shows what reached the child, after the
+never-overwrite rule and the `--port` exception (§8a) are applied. `env` and
+`show --json` print what the config renders, not the outcome of the merge,
+and today `exec` reports a kept value only when it differs from the rendered
+one. The outcome is what explains "why is my backend on 9999?".
+
+It prints to stderr, after the usual banner, one line per variable the tool
+manages, then the command:
+
+```console
+$ npx worktree-ports exec -v --port web -- next dev
+worktree-ports: app-feat (linked worktree): api=27420 web=27421
+worktree-ports:   set      API_ORIGIN=http://127.0.0.1:27420
+worktree-ports:   set      WORKTREE_ROOT=/home/me/src/app-feat
+worktree-ports:   replaced PORT=27421 (--port web; was 27420 from an outer exec)
+worktree-ports:   kept     API_ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:27420)
+worktree-ports: running: next dev
+```
+
+- The variables listed are exactly those the tool manages: every key the
+  config's `env` renders, plus `PORT` and `WORKTREE_PORTS_PORT` with
+  `--port`. The rest of the inherited environment is never printed. It
+  often holds tokens and keys, and this output gets pasted into issues and
+  chat.
+- Each line says `set`, `replaced` (only `PORT` and `WORKTREE_PORTS_PORT`,
+  under the §8a nesting rule) or `kept`. A kept line shows the value that
+  won and the one this checkout would have used, even when they are equal.
+- The command is printed shell-quoted, as `env` quotes values, so it can be
+  copied and rerun.
+- With `--verify`, a line reports the outcome before the command line:
+  `verify: <url> reports this checkout` on a match. Mismatch, unreachable
+  and unreported print their usual messages.
+- With `WORKTREE_PORTS=off` or no config found, it prints that nothing was
+  added, then the command.
+- `-v` applies to `exec` only; `env` already prints every value. It is the
+  CLI's first short flag.
 
 ## 9. Platforms
 
@@ -402,7 +513,8 @@ Exit codes:
 ## 10. Wiring a server
 
 The contract with servers is just environment variables. A server reads its
-port (or listen address) from the variable the config names. For `--verify`, a
+port (or listen address) from the variable the config names, or from `PORT`
+when its script uses `exec --port` (§8a). For `--verify`, a
 backend reports the checkout root on a dev-only route, `/__worktree`, not on
 its health endpoint: health endpoints are often polled by load balancers and
 monitors, sometimes from outside, and their response is a contract with that
@@ -521,10 +633,11 @@ example/
 - **No dependencies, no build:** plain ESM JavaScript using only `node:http`.
   Each server is under ~60 lines.
 - **`worktree-ports.json`:** services `backend` (offset 0, default 4100) and
-  `frontend` (offset 1, default 4000). Env: `BACKEND_PORT`, `PORT`,
-  `BACKEND_ORIGIN=http://127.0.0.1:{backend}`, `WORKTREE_ROOT={root}`. A
+  `frontend` (offset 1, default 4000). Env:
+  `BACKEND_ORIGIN=http://127.0.0.1:{backend}`, `WORKTREE_ROOT={root}`. Neither
+  server's own port is in `env`; both come from `--port` (§8a). A
   `verify` block points at the backend's `/__worktree`, field `worktreeRoot`.
-- **`backend.mjs`:** listens on `127.0.0.1:$BACKEND_PORT`. It serves
+- **`backend.mjs`:** listens on `127.0.0.1:$PORT`. It serves
   `/__worktree` → `{"worktreeRoot":…}` only when `WORKTREE_ROOT` is set and
   the socket's peer is a loopback address, and 404 otherwise (§10), and
   `/api/hello` → the worktree root and its own port.
@@ -533,8 +646,9 @@ example/
   frontend runs in next to the one the backend reports, highlighting any
   mismatch. That makes the problem the tool solves visible.
 - **Scripts:**
-  - `npm run backend`: `worktree-ports exec -- node backend.mjs`
-  - `npm run frontend`: `worktree-ports exec --verify -- node frontend.mjs`
+  - `npm run backend`: `worktree-ports exec --port backend -- node backend.mjs`
+  - `npm run frontend`:
+    `worktree-ports exec --port frontend --verify -- node frontend.mjs`
   - `npm run ports`: `worktree-ports show`
 - The example's config sits in `example/`, not at the repo root, so it also
   demonstrates upward config discovery and per-config claims (§6a, §7b).
@@ -552,7 +666,7 @@ and locally via `npm run test:e2e`):
    checkout's own root. The two checkouts use different ports, and the main
    checkout uses the defaults.
 4. Start a backend from the main checkout on the linked worktree's backend
-   port (by setting `BACKEND_PORT` explicitly), then start the worktree's
+   port (by setting `PORT` explicitly), then start the worktree's
    frontend: `exec --verify` exits 1.
 5. With `CI=true`: both checkouts resolve to the defaults and the registry is
    untouched.
@@ -577,7 +691,8 @@ Contents, in order:
    can't tell the others, so the frontend still reaches whichever backend owns
    the usual port. Kept short and concrete.
 3. **Quick start**: install (`npm i -D worktree-ports` or `npx`), a minimal
-   two-service `worktree-ports.json`, wrapping a dev script with `exec`, and
+   two-service `worktree-ports.json`, wrapping a dev script with
+   `exec --port`, and
    `show` printing different ports in two worktrees. Ends with a link to
    `example/` for a runnable version.
 4. **How it works**: blocks, the per-user registry, stable ports, freeing on
@@ -589,7 +704,8 @@ Contents, in order:
    completion.
 6. **CLI reference**: every command and flag, and the exit-code table.
 7. **Environment variables**: `WORKTREE_PORTS`, `WORKTREE_PORTS_STATE_DIR`,
-   `CI`, and the never-overwrite rule with its warning.
+   `CI`, `WORKTREE_PORTS_PORT`, and the never-overwrite rule with its warning
+   and its `--port` exception.
 8. **Per-user settings**: the settings file, its location per platform, and
    the default range with why it ends below 32768.
 9. **Guarding against the wrong backend (`--verify`)**: what it checks, the
@@ -597,8 +713,9 @@ Contents, in order:
    example in a few languages (Node, Go, Python) that reports the checkout root
    only when `WORKTREE_ROOT` is set and the peer is loopback, and 404s
    otherwise.
-10. **Wiring examples**: `package.json` scripts, a Vite/Next-style dev server
-    reading `PORT`, a server in another language reading its address from the
+10. **Wiring examples**: `package.json` scripts using `--port`, a
+    Vite/Next-style dev server reading `PORT` (Vite through its config file,
+    not `sh -c`, which fails under Windows' `cmd.exe`), a server in another language reading its address from the
     env, a `Makefile` target, and a CI job.
 11. **Programmatic API**: a short summary with one example; the full signatures
     live in the shipped `.d.ts`.
@@ -642,7 +759,12 @@ All examples use generic project names, paths and variables.
   - Config discovery walking upward, per-config claims, and no git.
   - A `default` inside the range is rejected.
   - CLI: every command's output and `--json` shape, exit codes, `exec`
-    never-overwrite, signal forwarding (skipped on Windows), and `--verify`'s
+    never-overwrite, `--port` (sets `PORT` and `WORKTREE_PORTS_PORT`; each
+    row of the nesting table in §8a; beats an `env` entry for `PORT`; unknown
+    service exits 1; adds nothing under `WORKTREE_PORTS=off`; `env --port`
+    output), `--verbose` (each of `set` / `replaced` / `kept`, the quoted
+    command, the verify line, the off and no-config cases, and no inherited
+    variable outside the managed set printed), signal forwarding (skipped on Windows), and `--verify`'s
     match / mismatch / unreachable / unreported outcomes against a stub
     server.
 - **End-to-end:** the example test (§12b).
@@ -655,3 +777,13 @@ All examples use generic project names, paths and variables.
 2. **A `default` inside the claim range is an error (§6b).** The collision
    it prevents is silent, while the error is loud, rare (normal dev ports sit
    far below the range) and fixed in one line.
+3. **`PORT` comes from `exec --port`, not from `env` (§8a).** `PORT` is a
+   per-process convention and `env` is shared by every wrapped process, so a
+   `PORT` entry in `env` sends every server that honours it to the same port.
+   Nested `exec` can't be disallowed instead: it is common and harmless
+   without `--port`, and detecting the harmful case needs the same marker that
+   handling it does. The marker covers `PORT` only, so the never-overwrite
+   rule stays unchanged for everything else.
+4. **`--verbose` prints only the variables the tool manages (§8b).** The
+   merge outcome for those is what users debug; the rest of the inherited
+   environment adds noise and can leak secrets into pasted output.
