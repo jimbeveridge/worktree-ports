@@ -403,14 +403,20 @@ Exit codes:
 
 The contract with servers is just environment variables. A server reads its
 port (or listen address) from the variable the config names. For `--verify`, a
-backend adds the checkout root to its health response outside production:
+backend adds the checkout root to its health response. The handler fails
+closed: it includes the root only when `WORKTREE_ROOT` is set (only
+`worktree-ports exec` sets it, so a deployment never has it) and the socket's
+peer is a loopback address. Loopback alone isn't enough, since a reverse proxy
+on the same host makes every request look local; an environment-name gate
+(`NODE_ENV !== "production"`) fails open wherever the variable is unset. The
+peer comes from the socket, never from a forwarding header or proxy trust:
 
 ```ts
 app.get('/healthz', (req, res) => {
-  res.json({
-    status: 'ok',
-    ...(process.env.NODE_ENV === 'production' ? {} : { worktreeRoot: process.env.WORKTREE_ROOT }),
-  })
+  const peer = req.socket.remoteAddress ?? ''
+  const local = peer === '::1' || /^(::ffff:)?127\./.test(peer)
+  const root = process.env.WORKTREE_ROOT
+  res.json({ status: 'ok', ...(root && local ? { worktreeRoot: root } : {}) })
 })
 ```
 
@@ -514,8 +520,8 @@ example/
   `verify` block points at the backend's `/healthz`, field `worktreeRoot`.
 - **`backend.mjs`:** listens on `127.0.0.1:$BACKEND_PORT`. It serves
   `/healthz` → `{"status":"ok","worktreeRoot":…}`, with the root included only
-  when `NODE_ENV !== "production"`, and `/api/hello` → the worktree root and
-  its own port.
+  when `WORKTREE_ROOT` is set and the socket's peer is a loopback address
+  (§10), and `/api/hello` → the worktree root and its own port.
 - **`frontend.mjs`:** listens on `127.0.0.1:$PORT`, proxies `/api/*` to
   `$BACKEND_ORIGIN`, and serves one HTML page. The page shows the worktree the
   frontend runs in next to the one the backend reports, highlighting any

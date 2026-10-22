@@ -12,8 +12,11 @@ function send(res, status, body) {
 const server = createServer((req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost')
   if (pathname === '/healthz') {
-    // Only a non-production server reveals its root; the tool's verify check reads this field.
-    const exposeRoot = process.env.NODE_ENV !== 'production'
+    // The tool's verify check reads this field. Fail closed: reveal the root only when worktree-ports set
+    // WORKTREE_ROOT and the socket's peer (never a forwarding header) is loopback.
+    const peer = req.socket.remoteAddress ?? ''
+    const isLoopback = peer === '::1' || /^(::ffff:)?127\./.test(peer)
+    const exposeRoot = Boolean(worktreeRoot) && isLoopback
     send(res, 200, { status: 'ok', ...(exposeRoot ? { worktreeRoot } : {}) })
   } else if (pathname === '/api/hello') {
     send(res, 200, { worktreeRoot, port })
