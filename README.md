@@ -357,8 +357,9 @@ worktree-ports: app-feat (linked worktree): api=27420 web=27421
 9999
 ```
 
-The one exception is `PORT` under `--port`: a `PORT` equal to `WORKTREE_PORTS_PORT` was set by an outer `exec --port`,
-so the inner one replaces both silently. Any other `PORT` is yours and is kept.
+There are two exceptions. Under `--port`, a `PORT` equal to `WORKTREE_PORTS_PORT` was set by an outer `exec --port`, so
+the inner one replaces both silently; any other `PORT` is yours and is kept. And `WORKTREE_PORTS_ACTIVE` is always set
+to `1`.
 
 A CI job or a developer that pins `PORT` keeps it. The flip side is a warning to heed: a stale `PORT` exported in your
 shell profile silently beats the tool in every worktree.

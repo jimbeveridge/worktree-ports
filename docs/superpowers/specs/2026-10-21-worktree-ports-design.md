@@ -110,8 +110,9 @@ resolved port.
 **Never overwrite.** `exec` only fills in variables that are unset in its own
 environment. When an existing value differs from the rendered one, it warns on
 stderr so it's clear which one won. A CI job or a developer that pins `PORT`
-keeps it. The one exception is a `PORT` set by an outer `exec --port`, which an
-inner `exec --port` may replace (§8a).
+keeps it. There are two exceptions: a `PORT` set by an outer `exec --port`,
+which an inner `exec --port` may replace (§8a), and `WORKTREE_PORTS_ACTIVE`,
+which `exec` always sets to `1` (§8).
 
 ## 6. Repository config
 
