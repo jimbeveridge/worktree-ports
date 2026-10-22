@@ -629,11 +629,10 @@ All examples use generic project names, paths and variables.
 - **End-to-end:** the example test (§12b).
 - Tests never touch the real registry (§12a rule 2).
 
-## 15. Open questions
+## 15. Decisions
 
-1. **Name.** `worktree-ports` is free on npm and matches the repo. Do we want a
-   short alias bin (e.g. `wtp`)? Proposed: no, to avoid clashing with other
-   tools.
-2. **`default` inside the range is an error (§6b).** Should it be a warning
-   instead? An error is stricter, but a range change in user settings could
-   start breaking a repo that loaded fine yesterday.
+1. **No alias bin.** The only command is `worktree-ports`, to avoid clashing
+   with other tools.
+2. **A `default` inside the claim range is an error (§6b).** The collision
+   it prevents is silent, while the error is loud, rare (normal dev ports sit
+   far below the range) and fixed in one line.
