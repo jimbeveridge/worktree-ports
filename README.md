@@ -111,10 +111,10 @@ starting point.
       Keep `env` for values every process needs (origins, proxy targets, `WORKTREE_ROOT`). A server that reads a
       different variable for its own port can still get it from `env`, as long as no other server reads that name.
 - [ ] **Make the servers read the environment.** Replace each hard-coded port or address with the variable the config
-      names. A fallback in the source is optional, since the tool renders your `default`s outside worktrees, but keep it
+      names, or `PORT` for a server started with `--port`. A fallback in the source is optional, since the tool renders your `default`s outside worktrees, but keep it
       if the server is also started without the tool.
 - [ ] **Wrap every entry point.** Prefix each script that starts a server, or runs anything that talks to one (tests,
-      e2e suites, seed scripts), with `worktree-ports exec --`. On Windows, npm scripts run under `cmd.exe`, so pass
+      e2e suites, seed scripts), with `worktree-ports exec --`; for a server script use `exec --port <service> --`. On Windows, npm scripts run under `cmd.exe`, so pass
       ports through the server's config file rather than `sh -c` (see [wiring examples](#wiring-examples)). A launcher
       that re-runs itself under `exec` needs a guard against recursing: test a variable your config renders, such
       as `WORKTREE_ROOT`.
@@ -135,7 +135,7 @@ starting point.
       its own ports as `listening`, and as `mine` if you set up `verify`. `owner unknown` means the server did not
       answer the route, often because it was started before you added it; restart it.
 - [ ] **Test the refusal.** If you set up `verify`, start the second checkout's backend with a wrong root, such as
-      `WORKTREE_ROOT=/elsewhere npx worktree-ports exec -- <backend command>` (`exec` keeps a value you set). Starting
+      `WORKTREE_ROOT=/elsewhere npx worktree-ports exec --port <service> -- <backend command>` (`exec` keeps a value you set). Starting
       the frontend with `exec --verify` should now refuse and exit 1.
 
 ## How it works
