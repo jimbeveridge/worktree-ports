@@ -251,11 +251,14 @@ test('claiming deletes a claim whose git dir has gone', async (t) => {
   const reg = registry()
   const r = repo(t)
   const wt = r.addWorktree('gone')
-  writeClaim(reg.stateDir, claimOf(owner(wt), 20010, 10))
+  const gone = owner(wt)
+  writeClaim(reg.stateDir, claimOf(gone, 20010, 10))
   r.removeWorktree(wt)
   await claimBlock(owner(r.main), 10, reg, hooks())
-  assert.ok(!existsSync(join(reg.stateDir, 'claims', '20010.json')))
-  assert.equal(readAllClaims(reg.stateDir).length, 1)
+  // Check by owner, not by file name: the new claim may itself land on 20010.
+  const left = readAllClaims(reg.stateDir)
+  assert.equal(left.length, 1)
+  assert.notEqual(left[0]!.gitDir, gone.gitDir)
 })
 
 test('a stale claim does not count as taken space', async (t) => {
@@ -280,7 +283,9 @@ test('concurrent claims for the same owner resolve to one block', async (t) => {
 })
 
 test('8 concurrent claims for 8 owners get 8 disjoint blocks', async (t) => {
-  const reg = registry({ min: 20000, max: 20199 })
+  // Random 10-aligned placement can strand a 10-port gap beside each 20-port block, so 8 blocks need up to
+  // 8 * 20 + 9 * 10 = 250 ports. 300 always fits them; 200 ran out about one run in a hundred.
+  const reg = registry({ min: 20000, max: 20299 })
   const r = repo(t)
   const owners = [r.main, r.addWorktree('w1'), r.addWorktree('w2'), r.addWorktree('w3')].flatMap((dir) => [
     owner(dir, 'a/worktree-ports.json'),
