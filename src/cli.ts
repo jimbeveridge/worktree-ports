@@ -117,6 +117,18 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
+/** Quote an argument for the `running:` line only when a shell would need it. */
+function quoteArg(arg: string): string {
+  return arg !== '' && /^[A-Za-z0-9_/.,:=@%+-]+$/.test(arg) ? arg : shellQuote(arg)
+}
+
+/** The `-v` message for a run that adds nothing, then the `running:` line. */
+function verboseUnchanged(args: ParsedArgs, why: string, io: CliIo): void {
+  if (!args.verbose) return
+  io.stderr(`${PREFIX} nothing added (${why})`)
+  io.stderr(`${PREFIX} running: ${args.rest.map(quoteArg).join(' ')}`)
+}
+
 function spawnChild(argv: string[], env: Record<string, string | undefined>, io: CliIo): Promise<number> {
   const cmd = argv[0]!
   // On Windows a `.cmd`/`.bat` (npm, npx, node_modules/.bin) is run through cmd.exe; see planSpawn.
@@ -275,7 +287,8 @@ async function exec(r: ResolvedPorts, args: ParsedArgs, io: CliIo): Promise<numb
   const port = portRequest(r, args, io)
   if (port === 1) return 1
   const { env, outcomes } = buildChildEnv(io.env, r.env, port)
-  for (const o of outcomes) {
+  // With -v the per-variable lines below replace these warnings.
+  for (const o of args.verbose ? [] : outcomes) {
     if (o.action === 'kept' && o.value !== o.rendered) {
       io.stderr(
         `${PREFIX} ${o.key} is already set to "${o.value}"; keeping it (this checkout would use "${o.rendered}")`,
@@ -283,6 +296,7 @@ async function exec(r: ResolvedPorts, args: ParsedArgs, io: CliIo): Promise<numb
     }
   }
 
+  let verified = false
   if (args.verify) {
     const spec = r.verify
     if (!spec) {
@@ -297,7 +311,9 @@ async function exec(r: ResolvedPorts, args: ParsedArgs, io: CliIo): Promise<numb
       )
       return 1
     }
-    if (result.status === 'unreachable') {
+    if (result.status === 'match') {
+      verified = true
+    } else if (result.status === 'unreachable') {
       io.stderr(`${PREFIX} nothing is answering at ${spec.url} (${result.reason}); starting anyway`)
     } else if (result.status === 'unreported') {
       io.stderr(`${PREFIX} ${spec.url} did not report "${spec.field}"; cannot confirm whose it is; starting anyway`)
@@ -308,6 +324,22 @@ async function exec(r: ResolvedPorts, args: ParsedArgs, io: CliIo): Promise<numb
     .map(([service, port]) => `${service}=${port}`)
     .join(' ')
   io.stderr(`${PREFIX} ${r.name} (${r.context.reason}): ${ports}`)
+  if (args.verbose) {
+    // Only variables this tool manages are listed; the rest of the inherited environment may hold secrets.
+    for (const o of outcomes) {
+      let suffix = ''
+      if (o.action === 'kept') suffix = ` (this checkout would use ${o.rendered})`
+      else if (o.key === 'PORT' && port) {
+        suffix =
+          o.action === 'replaced'
+            ? ` (--port ${port.service}; was ${o.previous} from an outer exec)`
+            : ` (--port ${port.service})`
+      }
+      io.stderr(`${PREFIX}   ${o.action.padEnd(8)} ${o.key}=${o.value}${suffix}`)
+    }
+    if (verified) io.stderr(`${PREFIX} verify: ${r.verify!.url} reports this checkout`)
+    io.stderr(`${PREFIX} running: ${args.rest.map(quoteArg).join(' ')}`)
+  }
   return spawnChild(args.rest, env, io)
 }
 
@@ -369,6 +401,7 @@ async function dispatch(args: ParsedArgs, io: CliIo): Promise<number> {
   } catch (err) {
     if (err instanceof NoConfigError && args.command === 'exec') {
       io.stderr(`${PREFIX} ${err.message}; running the command unchanged`)
+      verboseUnchanged(args, 'no config found', io)
       return spawnChild(args.rest, io.env, io)
     }
     throw err
@@ -415,7 +448,10 @@ export async function run(argv: string[], io: CliIo = defaultIo()): Promise<numb
 
   try {
     if (readMode(io.env) === 'off') {
-      if (args.command === 'exec') return await spawnChild(args.rest, io.env, io)
+      if (args.command === 'exec') {
+        verboseUnchanged(args, 'WORKTREE_PORTS=off', io)
+        return await spawnChild(args.rest, io.env, io)
+      }
       io.stdout(OFF_MESSAGE)
       return 0
     }

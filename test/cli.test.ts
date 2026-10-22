@@ -441,6 +441,120 @@ test('exec --verify without a verify section is a usage error', async (t) => {
   assert.equal(await run(['exec', '--verify', '--', process.execPath, '-e', ''], io), 2)
 })
 
+// --- exec --verbose ---
+
+const SAFE_ARG = /^[A-Za-z0-9_/.,:=@%+-]+$/
+const shownArg = (a: string) => (SAFE_ARG.test(a) ? a : `'${a.replaceAll("'", `'\\''`)}'`)
+const NOOP = ['--', process.execPath, '-e', '0']
+
+test('exec -v lists set, replaced and kept variables and the command', async (t) => {
+  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', ADDR: '127.0.0.1:{api}' } })
+  const { io, err } = capture(repo.main, {
+    PORT: '8080',
+    WORKTREE_PORTS_PORT: '8080',
+    ADDR: '127.0.0.1:9000',
+    SECRET: 'hunter2',
+  })
+  assert.equal(await run(['exec', '-v', '--port', 'web', ...NOOP], io), 0)
+  assert.deepEqual(err, [
+    'worktree-ports: main (main checkout): api=8080 web=3000',
+    `worktree-ports:   set      ROOT=${repo.main}`,
+    'worktree-ports:   kept     ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:8080)',
+    'worktree-ports:   replaced PORT=3000 (--port web; was 8080 from an outer exec)',
+    'worktree-ports:   replaced WORKTREE_PORTS_PORT=3000',
+    `worktree-ports: running: ${NOOP.slice(1).map(shownArg).join(' ')}`,
+  ])
+  assert.doesNotMatch(err.join('\n'), /hunter2|already set/)
+})
+
+test('exec -v marks a set PORT with its service', async (t) => {
+  const repo = repoWithConfig(t)
+  const { io, err } = capture(repo.main)
+  assert.equal(await run(['exec', '-v', '--port', 'web', ...NOOP], io), 0)
+  const i = err.indexOf('worktree-ports:   set      PORT=3000 (--port web)')
+  assert.ok(i >= 0, err.join('\n'))
+  assert.equal(err[i + 1], 'worktree-ports:   set      WORKTREE_PORTS_PORT=3000')
+})
+
+test('exec -v shows a kept value even when equal', async (t) => {
+  const repo = repoWithConfig(t)
+  const { io, err } = capture(repo.main, { ROOT: repo.main })
+  assert.equal(await run(['exec', '-v', ...NOOP], io), 0)
+  assert.ok(
+    err.includes(`worktree-ports:   kept     ROOT=${repo.main} (this checkout would use ${repo.main})`),
+    err.join('\n'),
+  )
+})
+
+test('exec -v quotes the command', async (t) => {
+  const repo = repoWithConfig(t)
+  const { io, err } = capture(repo.main)
+  assert.equal(await run(['exec', '-v', '--', process.execPath, '-e', 'process.exit(0)'], io), 0)
+  assert.match(err.at(-1)!, /^worktree-ports: running: .* -e 'process\.exit\(0\)'$/)
+})
+
+test('exec -v reports a verify match', async (t) => {
+  const repo = repoWithConfig(t, verifyConfig(1))
+  const port = await server(t, { root: repo.main })
+  writeConfig(repo.main, verifyConfig(port))
+  const { io, err } = capture(repo.main)
+  assert.equal(await run(['exec', '-v', '--verify', ...NOOP], io), 0)
+  const verifyAt = err.indexOf(`worktree-ports: verify: http://127.0.0.1:${port}/health reports this checkout`)
+  const lastVar = err.findLastIndex((l) => l.startsWith('worktree-ports:   '))
+  assert.ok(verifyAt > lastVar && lastVar > 0, err.join('\n'))
+  assert.ok(err[verifyAt + 1]!.startsWith('worktree-ports: running: '))
+})
+
+test('exec -v with a verify mismatch still refuses', async (t) => {
+  const repo = repoWithConfig(t, verifyConfig(await server(t, { root: '/some/other/checkout' })))
+  const file = join(repo.dir, 'ran.json')
+  const { io, err } = capture(repo.main)
+  assert.equal(await run(['exec', '-v', '--verify', ...dumpEnvArgs(file, 'PORT')], io), 1)
+  assert.equal(existsSync(file), false, 'the child must not run')
+  assert.doesNotMatch(err.join('\n'), /running:/)
+})
+
+test('exec -v off and no config', async (t) => {
+  const repo = repoWithConfig(t)
+  const off = capture(repo.main, { WORKTREE_PORTS: 'off' })
+  assert.equal(await run(['exec', '-v', ...NOOP], off.io), 0)
+  assert.deepEqual(off.err, [
+    'worktree-ports: nothing added (WORKTREE_PORTS=off)',
+    `worktree-ports: running: ${NOOP.slice(1).map(shownArg).join(' ')}`,
+  ])
+
+  const none = capture(noConfigDir(t))
+  assert.equal(await run(['exec', '-v', ...NOOP], none.io), 0)
+  assert.equal(none.err.length, 3, none.err.join('\n'))
+  assert.match(none.err[0]!, /running the command unchanged/)
+  assert.equal(none.err[1], 'worktree-ports: nothing added (no config found)')
+  assert.match(none.err[2]!, /^worktree-ports: running: /)
+})
+
+test('flags after -- belong to the child', () => {
+  const a = parseArgs(['exec', '--', 'node', '-v'])
+  assert.equal(a.verbose, false)
+  assert.deepEqual(a.rest, ['node', '-v'])
+  const b = parseArgs(['exec', '--port', 'web', '--', 'next', 'dev', '--port', '4000'])
+  assert.equal(b.port, 'web')
+  assert.deepEqual(b.rest, ['next', 'dev', '--port', '4000'])
+})
+
+test('exec without -v prints no variable lines', async (t) => {
+  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', ADDR: '127.0.0.1:{api}' } })
+  const { io, err } = capture(repo.main, { ADDR: '127.0.0.1:9000', SECRET: 'hunter2' })
+  assert.equal(await run(['exec', '--port', 'web', ...NOOP], io), 0)
+  assert.equal(
+    err[0],
+    'worktree-ports: ADDR is already set to "127.0.0.1:9000"; keeping it (this checkout would use "127.0.0.1:8080")',
+  )
+  assert.ok(err.some((l) => l.startsWith('worktree-ports: main (main checkout)')))
+  assert.equal(
+    err.some((l) => l.startsWith('worktree-ports:   ')),
+    false,
+  )
+})
+
 // --- status ---
 
 test('status --json reports the verify target owner: mine', async (t) => {
