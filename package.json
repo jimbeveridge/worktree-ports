@@ -1,0 +1,39 @@
+{
+  "name": "worktree-ports",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "worktree-ports": "./dist/bin/worktree-ports.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": "github:jimbeveridge/worktree-ports",
+  "scripts": {
+    "test": "node --test --import ./test/setup.ts \"test/*.test.ts\"",
+    "test:e2e": "node --test --import ./test/setup.ts \"test/e2e/*.test.ts\"",
+    "lint": "prettier --check . && tsc --noEmit",
+    "format": "prettier --write .",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "prettier": "^3",
+    "typescript": "^5.9"
+  }
+}

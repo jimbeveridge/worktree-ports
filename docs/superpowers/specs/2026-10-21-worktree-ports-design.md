@@ -67,7 +67,7 @@ uses.
   newer than that.
 - **Development: Node ≥ 22.18.** Tests run against the `.ts` sources using
   Node's built-in type stripping (`node --test`), with no build step.
-- **No runtime dependencies.** Dev deps only: `typescript`, `@types/node`.
+- **No runtime dependencies.** Dev deps only: `typescript`, `@types/node`, `prettier`.
 - ESM only. A programmatic API is exported (§11).
 - MIT licence (the repo's `LICENSE`).
 - Needs git ≥ 2.31 (`git rev-parse --path-format=absolute`) when run inside a
@@ -78,22 +78,22 @@ uses.
 The tool first works out which context it's running in, then which ports to
 use.
 
-| Context | How it's detected | Ports used |
-|---|---|---|
-| Linked worktree | `git rev-parse`: git dir ≠ common dir | Its claimed block |
-| Main checkout | git dir = common dir | Service `default`s, or a claimed block if the config sets `"mainCheckout": "claim"` |
-| CI | `CI` is set and is not `""`, `0` or `false` | Service `default`s. Never claims, never writes the registry. |
-| No git | `git rev-parse` fails, but a config file is found | Service `default`s |
-| No config found | — | `exec` warns and runs the command unchanged. `show`, `env` and `status` exit 1. |
+| Context         | How it's detected                                 | Ports used                                                                          |
+| --------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Linked worktree | `git rev-parse`: git dir ≠ common dir             | Its claimed block                                                                   |
+| Main checkout   | git dir = common dir                              | Service `default`s, or a claimed block if the config sets `"mainCheckout": "claim"` |
+| CI              | `CI` is set and is not `""`, `0` or `false`       | Service `default`s. Never claims, never writes the registry.                        |
+| No git          | `git rev-parse` fails, but a config file is found | Service `default`s                                                                  |
+| No config found | —                                                 | `exec` warns and runs the command unchanged. `show`, `env` and `status` exit 1.     |
 
 `WORKTREE_PORTS` overrides the detection:
 
-| Value | Effect |
-|---|---|
-| unset / `auto` | The table above |
-| `default` | Use `default`s everywhere, even in a linked worktree |
-| `claim` | Claim a block even in the main checkout or CI (needs git) |
-| `off` | `exec` runs the command with nothing added. Other commands report that the tool is off. |
+| Value          | Effect                                                                                  |
+| -------------- | --------------------------------------------------------------------------------------- |
+| unset / `auto` | The table above                                                                         |
+| `default`      | Use `default`s everywhere, even in a linked worktree                                    |
+| `claim`        | Claim a block even in the main checkout or CI (needs git)                               |
+| `off`          | `exec` runs the command with nothing added. Other commands report that the tool is off. |
 
 **Why defaults rather than an empty env outside worktrees:** a config's `env`
 section holds more than ports (origins, callback URLs and the like). With an
@@ -147,14 +147,14 @@ claim (§7b), so two sub-projects never share a block.
 }
 ```
 
-| Field | Rule |
-|---|---|
-| `services.<name>.offset` | Required integer ≥ 0, unique per service. The service's port is the block base plus its offset. |
-| `services.<name>.default` | **Required** port 1–65535. Used by every context that doesn't claim (§5). Must fall outside the user's claim range, so a claimed block can never hand out another project's default. That's checked at load time against the effective range; a clash is an error naming both. |
-| `mainCheckout` | `"default"` (the default) or `"claim"`. |
-| `env` | Optional map of variable name → template (§5 tokens). |
-| `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See §8. |
-| `$schema` | Optional; ignored. A JSON Schema ships in the package for editor completion. |
+| Field                               | Rule                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `services.<name>.offset`            | Required integer ≥ 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                                                                |
+| `services.<name>.default`           | **Required** port 1–65535. Used by every context that doesn't claim (§5). Must fall outside the user's claim range, so a claimed block can never hand out another project's default. That's checked at load time against the effective range; a clash is an error naming both. |
+| `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                                                        |
+| `env`                               | Optional map of variable name → template (§5 tokens).                                                                                                                                                                                                                          |
+| `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See §8.                                                                                               |
+| `$schema`                           | Optional; ignored. A JSON Schema ships in the package for editor completion.                                                                                                                                                                                                   |
 
 Unknown fields are an error, so typos surface at once.
 
@@ -166,10 +166,10 @@ config with offsets 0–2 claims 10 ports; one with offsets up to 14 claims 20.
 
 ### 7a. Locations
 
-| Item | Path |
-|---|---|
-| State dir (registry) | `$WORKTREE_PORTS_STATE_DIR`, else `$XDG_STATE_HOME/worktree-ports`, else `~/.local/state/worktree-ports`. On Windows: `%LOCALAPPDATA%\worktree-ports`. |
-| Settings file | `$XDG_CONFIG_HOME/worktree-ports/config.json`, else `~/.config/worktree-ports/config.json`. On Windows: `%APPDATA%\worktree-ports\config.json`. Optional. |
+| Item                 | Path                                                                                                                                                      |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| State dir (registry) | `$WORKTREE_PORTS_STATE_DIR`, else `$XDG_STATE_HOME/worktree-ports`, else `~/.local/state/worktree-ports`. On Windows: `%LOCALAPPDATA%\worktree-ports`.    |
+| Settings file        | `$XDG_CONFIG_HOME/worktree-ports/config.json`, else `~/.config/worktree-ports/config.json`. On Windows: `%APPDATA%\worktree-ports\config.json`. Optional. |
 
 Settings:
 
@@ -242,7 +242,7 @@ one claim per sub-project. `root` and `claimedAt` are for `list` output only.
       (a hand edit, or a lock broken as stale while its holder was mid-write).
       Because every claimer writes before it scans, whichever of two racing
       claimers scans second sees the other. On a clash with a fresh claim,
-      ours yields: it deletes its file and retries. If two *settled* claims
+      ours yields: it deletes its file and retries. If two _settled_ claims
       overlap, the one whose `gitDir` sorts later moves, so both sides agree
       without coordinating.
 3. **The lock** is an atomic `mkdir` of `<state>/lock`. A claimer that finds it
@@ -254,7 +254,7 @@ one claim per sub-project. `root` and `claimedAt` are for `list` output only.
    the one that breaks a dead lock instead of timing out first.
 
 A claim file that can't be parsed or doesn't describe a valid interval is
-ignored, as if absent. One that exists but can't be *read* (a permissions
+ignored, as if absent. One that exists but can't be _read_ (a permissions
 error, say) is an error: treating it as absent could hand its block to
 someone else while it's still in use.
 
@@ -294,6 +294,7 @@ while. Also a claim that is merely old. Stable ports are the point, so an
 unused worktree keeps its block until someone decides otherwise.
 
 **Manual, via `prune` (§8):**
+
 - `prune` removes stale claims by the rules above, plus claims whose config
   file no longer exists.
 - `prune --unused-for <duration>` (e.g. `90d`, `12w`) also removes claims
@@ -304,6 +305,7 @@ unused worktree keeps its block until someone decides otherwise.
 
 **Exhaustion.** When no free interval is left after automatic cleanup, the
 claim fails (exit 1) with a message that:
+
 - Lists every claim, oldest `lastUsed` first, with base, size, root and last
   use.
 - Suggests `worktree-ports prune --unused-for 30d` and
@@ -364,6 +366,7 @@ worktree-ports --version | --help
   The checked server must expose its checkout root (or another per-checkout
   value) at that field, and should do so only outside production, since it's
   a local filesystem path.
+
 - **`list`**: every claim in the registry, across all repositories: base,
   size, root, config, last use, and whether it's stale (with the reason from
   §7d). Doesn't need a config.
@@ -375,14 +378,14 @@ worktree-ports --version | --help
 
 Exit codes:
 
-| Code | Meaning |
-|---|---|
-| `0` | Success, or the child's own `0`. |
-| (child's code) | Whatever `<command>` exited with. |
-| `1` | Port resolution failed (bad config, no free block, lock timeout, registry error), or `--verify` found a mismatch. |
-| `2` | Usage error (bad flags, missing command). |
-| `127` | The child failed to spawn. |
-| `128 + n` | The child was killed by signal `n`. |
+| Code           | Meaning                                                                                                           |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `0`            | Success, or the child's own `0`.                                                                                  |
+| (child's code) | Whatever `<command>` exited with.                                                                                 |
+| `1`            | Port resolution failed (bad config, no free block, lock timeout, registry error), or `--verify` found a mismatch. |
+| `2`            | Usage error (bad flags, missing command).                                                                         |
+| `127`          | The child failed to spawn.                                                                                        |
+| `128 + n`      | The child was killed by signal `n`.                                                                               |
 
 ## 9. Platforms
 
@@ -444,13 +447,13 @@ while.
 - `permissions: contents: read`.
 - Install with `npm ci` from the committed `package-lock.json`.
 
-| Job | Runs on | Steps |
-|---|---|---|
-| `lint` | ubuntu, Node 24 | Format check, `tsc --noEmit`, JSON-schema check of `schema.json` and `example/worktree-ports.json` |
-| `test` | ubuntu, macos, windows × Node 22, 24 | `npm test` (unit and integration) |
-| `pack` | ubuntu, Node 24 | `npm run build`, `npm pack`, upload the tarball as an artifact |
-| `smoke` | ubuntu, macos, windows × Node 20, 24; needs `pack` | Install the tarball into a fresh temp git repo with a linked worktree; run `show`, `env`, `exec`, `list` from both; assert different ports |
-| `example` | ubuntu, macos; needs `pack` | The end-to-end example test (§12b) against the tarball |
+| Job       | Runs on                                            | Steps                                                                                                                                      |
+| --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lint`    | ubuntu, Node 24                                    | Prettier check, `tsc --noEmit`                                                                                                             |
+| `test`    | ubuntu, macos, windows × Node 22, 24               | `npm test` (unit and integration)                                                                                                          |
+| `pack`    | ubuntu, Node 24                                    | `npm run build`, `npm pack`, upload the tarball as an artifact                                                                             |
+| `smoke`   | ubuntu, macos, windows × Node 20, 24; needs `pack` | Install the tarball into a fresh temp git repo with a linked worktree; run `show`, `env`, `exec`, `list` from both; assert different ports |
+| `example` | ubuntu, macos; needs `pack`                        | The end-to-end example test (§12b) against the tarball                                                                                     |
 
 Smoke and example tests use the packed tarball, not the source tree, so they
 test exactly what users install, including the `bin` entry and the `files`
