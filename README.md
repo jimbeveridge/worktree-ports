@@ -102,9 +102,17 @@ starting point.
       Set each `default` to the port it uses today, so the main checkout and CI keep running on it. Give each a distinct
       `offset`. See the [configuration reference](#configuration-reference).
 - [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and
-      test base URL you found, built from `{service}` tokens. Names must start with `WORKTREE_`
-      (`WORKTREE_API_ORIGIN`), so a config can never set a variable that changes how a program loads code. A value left
-      hard-coded is the silent cross-checkout failure described in [the problem](#the-problem).
+      test base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout
+      failure described in [the problem](#the-problem). The config rejects any name that breaks these rules:
+  - Every name starts with `WORKTREE_` (`WORKTREE_API_ORIGIN`), so a config can never set `PATH`, `NODE_OPTIONS` or
+    anything else that changes how a program loads code.
+  - Names starting with `WORKTREE_PORTS` are the tool's own (`WORKTREE_PORTS_ACTIVE`, `WORKTREE_PORTS_PORT`) and are
+    rejected.
+  - Use only `A-Z`, `0-9` and `_`: no lowercase, dashes or dots.
+  - `PORT` can't be rendered. A server that reads it gets it from `exec --port` (next item).
+  - Where a server or tool reads a fixed name (`API_ORIGIN`, `VITE_API_URL`), have it read the `WORKTREE_` name
+    instead, or copy the value across where it is loaded (`VITE_API_URL: process.env.WORKTREE_API_ORIGIN` in the
+    bundler config, say).
 - [ ] **Choose how each server gets its own port.** Every process run under `exec` receives the whole `env` map, so a
       server's own port must not come from a name another server also reads. For a server that reads `PORT` (Next.js and
       many other dev servers), start it with `exec --port <service>`, which sets `PORT` for that process only. `PORT`
@@ -127,7 +135,8 @@ starting point.
 - [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
       port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
       `export WORKTREE_API_PORT=8080` with `export WORKTREE_API_PORT="${WORKTREE_API_PORT:-8080}"`. A `.env` loader that
-      overrides the environment (such as dotenv with `override: true`) beats the tool too.
+      overrides the environment (such as dotenv with `override: true`) beats the tool too. On Windows, where variable
+      names ignore case, a value set under any casing (`worktree_api_port`, `Port`) counts as set and is kept.
 - [ ] **Optionally guard the backend.** Add a `/__worktree` route to the server others depend on, set `verify` in the
       config, and start the dependent server with `exec --verify`. The route must fail closed, answering only loopback
       requests when `WORKTREE_ROOT` is set and returning 404 otherwise; see
