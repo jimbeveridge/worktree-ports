@@ -30,7 +30,7 @@ Install it as a dev dependency, or run it with `npx`:
 npm i -D worktree-ports
 ```
 
-Describe your servers in `worktree-ports.json` at the repository root:
+Describe your servers in `worktree-ports.json` at the root of your project's repo:
 
 ```json
 {
@@ -83,6 +83,59 @@ web: 27421
 
 [`example/`](example) is a runnable two-server version of this.
 
+## Integration checklist
+
+To add support to an existing repository, work through these in order. The [Quick start](#quick-start) config is the
+starting point.
+
+- [ ] **Install it.** Run `npm i -D worktree-ports` in the package that runs your dev servers. `npx worktree-ports`
+      looks only in the nearest package's `node_modules/.bin`, so in a repository whose root is not a Node package,
+      scripts outside that package call it by path (`frontend/node_modules/.bin/worktree-ports`) or as
+      `npx worktree-ports@<version>`. For editor completion, point `$schema` at the shipped file by a path relative to
+      the config (`./frontend/node_modules/worktree-ports/schema.json`), or keep the unpkg URL.
+- [ ] **Find every port.** Search the repository for the port numbers your servers use (`8080`, `3000`, ...) in source,
+      scripts, `.env` files, proxy and CORS settings, and test configs (Playwright `webServer` and `baseURL`, for
+      example). Each server that listens becomes a service; everything else is a value built from one. Host ports in a
+      Docker Compose file (`"8080:8080"`) collide too: make the host side a variable (`"${API_PORT:-8080}:8080"`) and
+      run `docker compose` under `exec`. Leave container-internal ports, deployment config, docs and saved request
+      collections on the defaults.
+- [ ] **Declare the services.** Add `worktree-ports.json` at the repository root with one entry per listening server.
+      Set each `default` to the port it uses today, so the main checkout and CI keep running on it. Give each a distinct
+      `offset`. See the [configuration reference](#configuration-reference).
+- [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and test
+      base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout failure
+      described in [the problem](#the-problem).
+- [ ] **Check the variable names.** Every process run under `exec` receives the whole `env` map. Avoid generic names
+      such as `PORT` unless only one of your servers reads them: a backend that reads `PORT` before its own address
+      variable would bind to the frontend's port. Check which variables each server reads, and in what order.
+- [ ] **Make the servers read the environment.** Replace each hard-coded port or address with the variable the config
+      names. A fallback in the source is optional, since the tool renders your `default`s outside worktrees, but keep it
+      if the server is also started without the tool.
+- [ ] **Wrap every entry point.** Prefix each script that starts a server, or runs anything that talks to one (tests,
+      e2e suites, seed scripts), with `worktree-ports exec --`. On Windows, npm scripts run under `cmd.exe`, so pass
+      ports through the server's config file rather than `sh -c` (see [wiring examples](#wiring-examples)). A launcher
+      that re-runs itself under `exec` needs a guard against recursing: the tool sets no marker of its own, so test a
+      variable your config renders, such as `WORKTREE_ROOT`.
+- [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
+      port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
+      `export API_PORT=8080` with `export API_PORT="${API_PORT:-8080}"`. A `.env` loader that overrides the environment
+      (such as dotenv with `override: true`) beats the tool too.
+- [ ] **Optionally guard the backend.** Add a `/__worktree` route to the server others depend on, set `verify` in the
+      config, and start the dependent server with `exec --verify`. The route must fail closed, answering only loopback
+      requests when `WORKTREE_ROOT` is set and returning 404 otherwise; see
+      [`--verify`](#guarding-against-the-wrong-backend---verify) for why and for snippets.
+- [ ] **Commit the config.** CI needs no changes: with `CI` set the tool uses your `default`s and never claims ports.
+- [ ] **Test it in two checkouts.** Run `npx worktree-ports show` in the main checkout; it should print your defaults.
+      Then `git worktree add` a second checkout and install its dependencies (a real install: some bundlers reject a
+      symlinked `node_modules`). Start its backend before its frontend, since `--verify` with nothing answering warns
+      and starts anyway, and run both while the main checkout's servers are up. A passing `--verify` prints only the
+      usual `worktree-ports: <name> (<context>): ...` line. `npx worktree-ports status` in each checkout should report
+      its own ports as `listening`, and as `mine` if you set up `verify`. `owner unknown` means the server did not
+      answer the route, often because it was started before you added it; restart it.
+- [ ] **Test the refusal.** If you set up `verify`, start the second checkout's backend with a wrong root, such as
+      `WORKTREE_ROOT=/elsewhere npx worktree-ports exec -- <backend command>` (`exec` keeps a value you set). Starting
+      the frontend with `exec --verify` should now refuse and exit 1.
+
 ## How it works
 
 - **Blocks.** A block is ten or more consecutive ports. A service's port is the block's base plus its `offset`. Blocks
@@ -91,8 +144,9 @@ web: 27421
   machine. A lock around claiming keeps the blocks disjoint with no coordination between projects.
 - **Stable ports.** A claim is keyed by the worktree's private git directory and the config file's path, so a worktree
   finds the same block on every run. Lookups need no lock and cost one directory read.
-- **Freeing.** Claims are removed automatically when the worktree goes away: `git worktree remove`, `git worktree prune`,
-  a deleted clone, or a worktree folder removed by hand. Nothing else expires a claim, because an idle worktree keeps
+- **Freeing.** Once a worktree goes away (`git worktree remove`, `git worktree prune`, a deleted clone, or a worktree
+  folder removed by hand), its claim is removed by the next claim anywhere on the machine, or by `prune`. Until then
+  `list` shows it as stale. Nothing else expires a claim, because an idle worktree keeps
   its ports. `worktree-ports prune` cleans up on demand.
 - **No daemon.** Nothing runs in the background. The tool works out the ports, then runs your command and exits.
 
@@ -327,7 +381,7 @@ http.HandleFunc("/__worktree", func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"worktreeRoot": root})
+	_ = json.NewEncoder(w).Encode(map[string]string{"worktreeRoot": root})
 })
 ```
 
@@ -368,12 +422,14 @@ the config names.
 }
 ```
 
-**A Vite or Next-style dev server.** Most dev servers read `PORT`, which `exec` sets from `"PORT": "{web}"`. Servers that
-take a flag instead can read the variable through the script:
+**A Vite or Next-style dev server.** Next.js and many other dev servers read `PORT`, which `exec` sets from
+`"PORT": "{web}"`. Vite does not; read the variable in `vite.config.js` instead:
 
-```sh
-worktree-ports exec -- sh -c 'vite --port "$PORT"'
+```js
+export default { server: { port: Number(process.env.PORT) || 5173, strictPort: true } }
 ```
+
+Prefer a config file over `sh -c 'vite --port "$PORT"'`, which fails on Windows, where npm scripts run under `cmd.exe`.
 
 Proxy targets read the other variables, for example `process.env.API_ORIGIN` in `vite.config.js`.
 
