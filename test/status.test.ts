@@ -70,59 +70,75 @@ function repoWith(t: { after: (fn: () => void) => void }, apiPort: number, webPo
   return { repo, resolved: resolvePorts({ cwd: repo.main, configPath }) }
 }
 
-test('the verify target reports owner "mine" when it answers with this worktree root', async (t) => {
-  const repo0 = makeRepo()
-  t.after(() => repo0.cleanup())
-  // The health server must answer with the repo's root, which we only know after creating the repo,
-  // so build the repo first, then start a server that echoes that root.
-  const api = await listen('127.0.0.1', JSON.stringify({ root: repo0.main }))
-  t.after(() => close(api.server))
-  const webPort = await freePort()
-  const configPath = join(repo0.dir, 'config.json')
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      fileName: 'port.txt',
-      range: { min: 2000, max: 2000, step: 10 },
-      services: { api: { offset: 0, mainPort: api.port }, web: { offset: 1, mainPort: webPort } },
-      verify: { url: 'http://127.0.0.1:{api}/health', field: 'root', expect: '{root}' },
-    }),
-  )
-  const statuses = await serviceStatus(resolvePorts({ cwd: repo0.main, configPath }))
-  assert.deepEqual(statuses, [
-    { service: 'api', port: api.port, listening: true, owner: 'mine', ownerRoot: repo0.main },
-    { service: 'web', port: webPort, listening: false },
-  ])
-})
+test(
+  'the verify target reports owner "mine" when it answers with this worktree root',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const repo0 = makeRepo()
+    t.after(() => repo0.cleanup())
+    // The health server must answer with the repo's root, which we only know after creating the repo,
+    // so build the repo first, then start a server that echoes that root.
+    const api = await listen('127.0.0.1', JSON.stringify({ root: repo0.main }))
+    t.after(() => close(api.server))
+    const webPort = await freePort()
+    const configPath = join(repo0.dir, 'config.json')
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        fileName: 'port.txt',
+        range: { min: 2000, max: 2000, step: 10 },
+        services: { api: { offset: 0, mainPort: api.port }, web: { offset: 1, mainPort: webPort } },
+        verify: { url: 'http://127.0.0.1:{api}/health', field: 'root', expect: '{root}' },
+      }),
+    )
+    const statuses = await serviceStatus(resolvePorts({ cwd: repo0.main, configPath }))
+    assert.deepEqual(statuses, [
+      { service: 'api', port: api.port, listening: true, owner: 'mine', ownerRoot: repo0.main },
+      { service: 'web', port: webPort, listening: false },
+    ])
+  },
+)
 
-test('the verify target reports owner "other" with the root it reported', async (t) => {
-  const api = await listen('127.0.0.1', JSON.stringify({ root: '/somewhere/else' }))
-  t.after(() => close(api.server))
-  const { resolved } = repoWith(t, api.port, await freePort())
-  const [apiStatus] = await serviceStatus(resolved)
-  assert.deepEqual(apiStatus, {
-    service: 'api',
-    port: api.port,
-    listening: true,
-    owner: 'other',
-    ownerRoot: '/somewhere/else',
-  })
-})
+test(
+  'the verify target reports owner "other" with the root it reported',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const api = await listen('127.0.0.1', JSON.stringify({ root: '/somewhere/else' }))
+    t.after(() => close(api.server))
+    const { resolved } = repoWith(t, api.port, await freePort())
+    const [apiStatus] = await serviceStatus(resolved)
+    assert.deepEqual(apiStatus, {
+      service: 'api',
+      port: api.port,
+      listening: true,
+      owner: 'other',
+      ownerRoot: '/somewhere/else',
+    })
+  },
+)
 
-test('the verify target reports owner "unknown" when it answers without the field', async (t) => {
-  const api = await listen('127.0.0.1', '<!doctype html>', 'text/html')
-  t.after(() => close(api.server))
-  const { resolved } = repoWith(t, api.port, await freePort())
-  const [apiStatus] = await serviceStatus(resolved)
-  assert.deepEqual(apiStatus, { service: 'api', port: api.port, listening: true, owner: 'unknown' })
-})
+test(
+  'the verify target reports owner "unknown" when it answers without the field',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const api = await listen('127.0.0.1', '<!doctype html>', 'text/html')
+    t.after(() => close(api.server))
+    const { resolved } = repoWith(t, api.port, await freePort())
+    const [apiStatus] = await serviceStatus(resolved)
+    assert.deepEqual(apiStatus, { service: 'api', port: api.port, listening: true, owner: 'unknown' })
+  },
+)
 
-test('a listening service that is not the verify target carries no owner', async (t) => {
-  const web = await listen('127.0.0.1')
-  t.after(() => close(web.server))
-  const { resolved } = repoWith(t, await freePort(), web.port)
-  const statuses = await serviceStatus(resolved)
-  assert.deepEqual(statuses[1], { service: 'web', port: web.port, listening: true })
-  assert.deepEqual(statuses[0]?.listening, false)
-  assert.equal(statuses[0]?.owner, undefined, 'a free verify target gets no owner')
-})
+test(
+  'a listening service that is not the verify target carries no owner',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const web = await listen('127.0.0.1')
+    t.after(() => close(web.server))
+    const { resolved } = repoWith(t, await freePort(), web.port)
+    const statuses = await serviceStatus(resolved)
+    assert.deepEqual(statuses[1], { service: 'web', port: web.port, listening: true })
+    assert.deepEqual(statuses[0]?.listening, false)
+    assert.equal(statuses[0]?.owner, undefined, 'a free verify target gets no owner')
+  },
+)

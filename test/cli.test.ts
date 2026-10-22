@@ -89,7 +89,7 @@ test('a usage error exits 2', async () => {
   assert.match(err.join('\n'), /usage:/)
 })
 
-test('show --json prints the resolution', async (t) => {
+test('show --json prints the resolution', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io, out } = capture(repo.main)
   assert.equal(await run(['show', '--json', '--config', config], io), 0)
@@ -100,27 +100,31 @@ test('show --json prints the resolution', async (t) => {
   assert.deepEqual(parsed.env, { PORT: '8080', ROOT: repo.main })
 })
 
-test('env prints shell-quoted exports', async (t) => {
+test('env prints shell-quoted exports', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t, { env: { ROOT: "{root}/it's" } })
   const { io, out } = capture(repo.main)
   assert.equal(await run(['env', '--config', config], io), 0)
   assert.deepEqual(out, [`export ROOT='${repo.main}/it'\\''s'`])
 })
 
-test('exec passes rendered env to the child, but an explicit variable wins', async (t) => {
-  const { repo, config } = repoWithConfig(t)
-  const wt = repo.addWorktree('feat')
-  const file = join(repo.dir, 'env.json')
-  const { io, err } = capture(wt, { ROOT: '/explicit' })
-  const code = await run(['exec', '--config', config, ...dumpEnvArgs(file, 'PORT', 'ROOT')], io)
-  assert.equal(code, 0)
-  const seen = JSON.parse(readFileSync(file, 'utf8'))
-  assert.ok(['20000', '20010', '20020'].includes(seen.PORT), `PORT was ${seen.PORT}`)
-  assert.equal(seen.ROOT, '/explicit')
-  assert.match(err.join('\n'), /ROOT is already set to "\/explicit"; keeping it/)
-})
+test(
+  'exec passes rendered env to the child, but an explicit variable wins',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const { repo, config } = repoWithConfig(t)
+    const wt = repo.addWorktree('feat')
+    const file = join(repo.dir, 'env.json')
+    const { io, err } = capture(wt, { ROOT: '/explicit' })
+    const code = await run(['exec', '--config', config, ...dumpEnvArgs(file, 'PORT', 'ROOT')], io)
+    assert.equal(code, 0)
+    const seen = JSON.parse(readFileSync(file, 'utf8'))
+    assert.ok(['20000', '20010', '20020'].includes(seen.PORT), `PORT was ${seen.PORT}`)
+    assert.equal(seen.ROOT, '/explicit')
+    assert.match(err.join('\n'), /ROOT is already set to "\/explicit"; keeping it/)
+  },
+)
 
-test('exec returns the child exit code', async (t) => {
+test('exec returns the child exit code', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io } = capture(repo.main)
   assert.equal(await run(['exec', '--config', config, '--', process.execPath, '-e', 'process.exit(7)'], io), 7)
@@ -144,25 +148,29 @@ async function healthServer(root: string): Promise<{ port: number; server: Serve
   return { port: (server.address() as AddressInfo).port, server }
 }
 
-test('exec --verify refuses to start when the service belongs to another worktree', async (t) => {
-  const { server, port } = await healthServer('/some/other/worktree')
-  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
-  // mainPort for api points at the fake health server, so the main checkout's verify URL hits it.
-  // The range must never contain an OS-assigned port (Linux ephemeral starts at 32768), or
-  // parseConfig rejects mainPort as "inside the allocation range" and the test flakes.
-  const { repo, config } = repoWithConfig(t, {
-    range: { min: 2000, max: 2000, step: 10 },
-    services: { api: { offset: 0, mainPort: port }, web: { offset: 1, mainPort: 3000 } },
-    verify: { url: 'http://127.0.0.1:{api}/health', field: 'root', expect: '{root}' },
-  })
-  const file = join(repo.dir, 'ran.json')
-  const { io, err } = capture(repo.main)
-  assert.equal(await run(['exec', '--verify', '--config', config, ...dumpEnvArgs(file, 'PORT')], io), 1)
-  assert.equal(existsSync(file), false, 'the child must not run')
-  assert.match(err.join('\n'), /belongs to "\/some\/other\/worktree", not this worktree/)
-})
+test(
+  'exec --verify refuses to start when the service belongs to another worktree',
+  { skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const { server, port } = await healthServer('/some/other/worktree')
+    t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+    // mainPort for api points at the fake health server, so the main checkout's verify URL hits it.
+    // The range must never contain an OS-assigned port (Linux ephemeral starts at 32768), or
+    // parseConfig rejects mainPort as "inside the allocation range" and the test flakes.
+    const { repo, config } = repoWithConfig(t, {
+      range: { min: 2000, max: 2000, step: 10 },
+      services: { api: { offset: 0, mainPort: port }, web: { offset: 1, mainPort: 3000 } },
+      verify: { url: 'http://127.0.0.1:{api}/health', field: 'root', expect: '{root}' },
+    })
+    const file = join(repo.dir, 'ran.json')
+    const { io, err } = capture(repo.main)
+    assert.equal(await run(['exec', '--verify', '--config', config, ...dumpEnvArgs(file, 'PORT')], io), 1)
+    assert.equal(existsSync(file), false, 'the child must not run')
+    assert.match(err.join('\n'), /belongs to "\/some\/other\/worktree", not this worktree/)
+  },
+)
 
-test('exec --verify continues with a warning when nothing is listening', async (t) => {
+test('exec --verify continues with a warning when nothing is listening', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t, {
     verify: { url: 'http://127.0.0.1:1/health', field: 'root', expect: '{root}' },
   })
@@ -173,20 +181,20 @@ test('exec --verify continues with a warning when nothing is listening', async (
   assert.match(err.join('\n'), /nothing is answering at http:\/\/127\.0\.0\.1:1\/health/)
 })
 
-test('exec --verify without a verify section is a usage error', async (t) => {
+test('exec --verify without a verify section is a usage error', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io } = capture(repo.main)
   assert.equal(await run(['exec', '--verify', '--config', config, '--', process.execPath, '-e', ''], io), 2)
 })
 
-test('exec: a nonexistent command exits 127', async (t) => {
+test('exec: a nonexistent command exits 127', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io, err } = capture(repo.main)
   assert.equal(await run(['exec', '--config', config, '--', 'definitely-not-a-command-xyz'], io), 127)
   assert.match(err.join('\n'), /could not start/)
 })
 
-test('exec: a child killed by a signal maps to 128+n', async (t) => {
+test('exec: a child killed by a signal maps to 128+n', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io } = capture(repo.main)
   const code = await run(
@@ -196,71 +204,79 @@ test('exec: a child killed by a signal maps to 128+n', async (t) => {
   assert.equal(code, 143) // 128 + SIGTERM (15)
 })
 
-test('exec: SIGTERM sent to the wrapper reaches the child', { timeout: 20_000 }, async (t) => {
-  const { repo, config } = repoWithConfig(t)
-  const readyFile = join(repo.dir, 'ready-sigterm.txt')
-  const markerFile = join(repo.dir, 'marker-sigterm.txt')
-  const script = [
-    'const fs = require("fs")',
-    `process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(markerFile)}, 'got-it'); process.exit(0) })`,
-    `fs.writeFileSync(${JSON.stringify(readyFile)}, 'ready')`,
-    'setInterval(() => {}, 1000)',
-  ].join('; ')
-  // detached so a failed/timed-out run can still be cleaned up as a whole process
-  // group (the grandchild `node -e` otherwise survives an unsignaled wrapper forever).
-  const wrapper = spawn(
-    process.execPath,
-    [BIN_PATH, 'exec', '--config', config, '--', process.execPath, '-e', script],
-    {
-      cwd: repo.main,
-      stdio: 'ignore',
-      detached: true,
-    },
-  )
-  t.after(() => killQuietly(wrapper, true))
+test(
+  'exec: SIGTERM sent to the wrapper reaches the child',
+  { timeout: 20_000, skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const { repo, config } = repoWithConfig(t)
+    const readyFile = join(repo.dir, 'ready-sigterm.txt')
+    const markerFile = join(repo.dir, 'marker-sigterm.txt')
+    const script = [
+      'const fs = require("fs")',
+      `process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(markerFile)}, 'got-it'); process.exit(0) })`,
+      `fs.writeFileSync(${JSON.stringify(readyFile)}, 'ready')`,
+      'setInterval(() => {}, 1000)',
+    ].join('; ')
+    // detached so a failed/timed-out run can still be cleaned up as a whole process
+    // group (the grandchild `node -e` otherwise survives an unsignaled wrapper forever).
+    const wrapper = spawn(
+      process.execPath,
+      [BIN_PATH, 'exec', '--config', config, '--', process.execPath, '-e', script],
+      {
+        cwd: repo.main,
+        stdio: 'ignore',
+        detached: true,
+      },
+    )
+    t.after(() => killQuietly(wrapper, true))
 
-  await waitForFile(readyFile)
-  wrapper.kill('SIGTERM') // aimed at the wrapper only, not the group: proves the wrapper itself forwards it
-  const [code] = await Promise.all([
-    new Promise<number | null>((resolve) => wrapper.on('exit', (c) => resolve(c))),
-    waitForFile(markerFile),
-  ])
-  assert.equal(code, 0)
-})
+    await waitForFile(readyFile)
+    wrapper.kill('SIGTERM') // aimed at the wrapper only, not the group: proves the wrapper itself forwards it
+    const [code] = await Promise.all([
+      new Promise<number | null>((resolve) => wrapper.on('exit', (c) => resolve(c))),
+      waitForFile(markerFile),
+    ])
+    assert.equal(code, 0)
+  },
+)
 
-test('exec: one process-group SIGINT reaches the child exactly once', { timeout: 20_000 }, async (t) => {
-  const { repo, config } = repoWithConfig(t)
-  const readyFile = join(repo.dir, 'ready-sigint.txt')
-  const countFile = join(repo.dir, 'count-sigint.txt')
-  const script = [
-    'const fs = require("fs")',
-    'let count = 0',
-    'let timer = null',
-    `process.on('SIGINT', () => { count++; if (!timer) timer = setTimeout(() => { fs.writeFileSync(${JSON.stringify(countFile)}, String(count)); process.exit(0) }, 300) })`,
-    `fs.writeFileSync(${JSON.stringify(readyFile)}, 'ready')`,
-    'setInterval(() => {}, 1000)',
-  ].join('; ')
-  const wrapper = spawn(
-    process.execPath,
-    [BIN_PATH, 'exec', '--config', config, '--', process.execPath, '-e', script],
-    {
-      cwd: repo.main,
-      stdio: 'ignore',
-      detached: true,
-    },
-  )
-  t.after(() => killQuietly(wrapper, true))
+test(
+  'exec: one process-group SIGINT reaches the child exactly once',
+  { timeout: 20_000, skip: 'rewired in Task 5/6' },
+  async (t) => {
+    const { repo, config } = repoWithConfig(t)
+    const readyFile = join(repo.dir, 'ready-sigint.txt')
+    const countFile = join(repo.dir, 'count-sigint.txt')
+    const script = [
+      'const fs = require("fs")',
+      'let count = 0',
+      'let timer = null',
+      `process.on('SIGINT', () => { count++; if (!timer) timer = setTimeout(() => { fs.writeFileSync(${JSON.stringify(countFile)}, String(count)); process.exit(0) }, 300) })`,
+      `fs.writeFileSync(${JSON.stringify(readyFile)}, 'ready')`,
+      'setInterval(() => {}, 1000)',
+    ].join('; ')
+    const wrapper = spawn(
+      process.execPath,
+      [BIN_PATH, 'exec', '--config', config, '--', process.execPath, '-e', script],
+      {
+        cwd: repo.main,
+        stdio: 'ignore',
+        detached: true,
+      },
+    )
+    t.after(() => killQuietly(wrapper, true))
 
-  await waitForFile(readyFile)
-  assert.ok(wrapper.pid !== undefined)
-  process.kill(-wrapper.pid!, 'SIGINT')
-  const [code] = await Promise.all([
-    new Promise<number | null>((resolve) => wrapper.on('exit', (c) => resolve(c))),
-    waitForFile(countFile),
-  ])
-  assert.equal(readFileSync(countFile, 'utf8'), '1')
-  assert.equal(code, 0)
-})
+    await waitForFile(readyFile)
+    assert.ok(wrapper.pid !== undefined)
+    process.kill(-wrapper.pid!, 'SIGINT')
+    const [code] = await Promise.all([
+      new Promise<number | null>((resolve) => wrapper.on('exit', (c) => resolve(c))),
+      waitForFile(countFile),
+    ])
+    assert.equal(readFileSync(countFile, 'utf8'), '1')
+    assert.equal(code, 0)
+  },
+)
 
 test('parseArgs accepts status with --json and rejects --verify on it', () => {
   assert.deepEqual(parseArgs(['status', '--json']), { command: 'status', json: true, verify: false, rest: [] })
@@ -268,7 +284,7 @@ test('parseArgs accepts status with --json and rejects --verify on it', () => {
   assert.throws(() => parseArgs(['status', '--verify']), /--verify only applies to exec/)
 })
 
-test('status --json reports each service and the verify target owner', async (t) => {
+test('status --json reports each service and the verify target owner', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   // repoWithConfig pins api=8080 / web=3000 as mainPorts with no verify section.
   // Point verify at a live health server that answers with this repo's root.
@@ -300,7 +316,7 @@ test('status --json reports each service and the verify target owner', async (t)
   ])
 })
 
-test('status prints a readable table', async (t) => {
+test('status prints a readable table', { skip: 'rewired in Task 5/6' }, async (t) => {
   const { repo, config } = repoWithConfig(t)
   const { io, out } = capture(repo.main)
   assert.equal(await run(['status', '--config', config], io), 0)

@@ -1,30 +1,20 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import type { PortRange } from './settings.ts'
 
-/** File name `resolvePorts` looks for at the worktree root. */
+/** File name `findConfig` looks for. */
 export const CONFIG_FILE_NAME = 'worktree-ports.json'
-export const DEFAULT_FILE_NAME = 'worktree-port.txt'
-/** Well below the OS ephemeral range (49152+ on macOS/BSD, 32768+ on Linux). */
-export const DEFAULT_RANGE: PortRange = { min: 20000, max: 29990, step: 10 }
 export const BUILTIN_TOKENS = ['root', 'name', 'home'] as const
 
-export interface PortRange {
-  /** First block base (inclusive). */
-  min: number
-  /** Last block base (inclusive). The last block spans `max .. max + step - 1`. */
-  max: number
-  /** Block size. Every service offset must be below it. */
-  step: number
-}
-
 export interface ServiceSpec {
-  /** Port = block base + offset. */
+  /** Port = claimed block base + offset. */
   offset: number
-  /** Fixed port used by the main checkout. Set on every service or on none. */
-  mainPort?: number
+  /** Port used by every context that does not claim (see the spec, section 5). */
+  default: number
 }
 
 export interface VerifySpec {
-  /** URL template, e.g. `http://localhost:{api}/health`. */
+  /** URL template, e.g. `http://127.0.0.1:{api}/healthz`. */
   url: string
   /** Top-level JSON field of the response that names the owning worktree. */
   field: string
@@ -32,11 +22,11 @@ export interface VerifySpec {
   expect: string
 }
 
+export type MainCheckoutMode = 'default' | 'claim'
+
 export interface WorktreePortsConfig {
-  /** Reservation file name inside each worktree's git dir. */
-  fileName: string
-  range: PortRange
   services: Record<string, ServiceSpec>
+  mainCheckout: MainCheckoutMode
   /** Environment variable templates rendered for `exec` / `env`. */
   env: Record<string, string>
   verify?: VerifySpec
@@ -67,72 +57,56 @@ export function templateTokens(template: string): string[] {
   return [...template.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1] ?? '')
 }
 
-/** True when the main checkout uses fixed `mainPort`s instead of allocating a block. */
-export function usesMainPorts(config: WorktreePortsConfig): boolean {
-  return Object.values(config.services).every((s) => s.mainPort !== undefined)
+const TOP_FIELDS = ['$schema', 'services', 'mainCheckout', 'env', 'verify'] as const
+const SERVICE_FIELDS = ['offset', 'default'] as const
+
+function rejectUnknown(obj: Record<string, unknown>, allowed: readonly string[], where: string, source: string): void {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.includes(key)) {
+      throw new ConfigError(`${source}: unknown field "${where}${key}"; allowed: ${allowed.join(', ')}`)
+    }
+  }
 }
 
 export function parseConfig(raw: unknown, source: string = CONFIG_FILE_NAME): WorktreePortsConfig {
   if (!isRecord(raw)) throw new ConfigError(`${source}: expected a JSON object`)
-
-  const fileName = raw.fileName === undefined ? DEFAULT_FILE_NAME : nonEmpty(raw.fileName, 'fileName', source)
-  if (/[\\/]/.test(fileName)) throw new ConfigError(`${source}: fileName must be a bare file name, got "${fileName}"`)
-
-  let range: PortRange = DEFAULT_RANGE
-  if (raw.range !== undefined) {
-    if (!isRecord(raw.range)) throw new ConfigError(`${source}: range must be an object`)
-    range = {
-      min: int(raw.range.min, 'range.min', source),
-      max: int(raw.range.max, 'range.max', source),
-      step: int(raw.range.step, 'range.step', source),
-    }
-  }
-  if (range.step < 1) throw new ConfigError(`${source}: range.step must be >= 1`)
-  if (range.min < 1024) throw new ConfigError(`${source}: range.min must be >= 1024 (lower ports are privileged)`)
-  if (range.max < range.min) throw new ConfigError(`${source}: range.max must be >= range.min`)
-  if ((range.max - range.min) % range.step !== 0) {
-    throw new ConfigError(`${source}: range.max - range.min must be a multiple of range.step`)
-  }
-  const lastPort = range.max + range.step - 1
-  if (lastPort > 65535) {
-    throw new ConfigError(`${source}: the last block (${range.max}..${lastPort}) exceeds port 65535`)
-  }
+  rejectUnknown(raw, TOP_FIELDS, '', source)
 
   if (!isRecord(raw.services) || Object.keys(raw.services).length === 0) {
     throw new ConfigError(`${source}: services must be an object with at least one service`)
   }
   const services: Record<string, ServiceSpec> = {}
-  const offsets = new Set<number>()
+  const offsets = new Map<number, string>()
   for (const [name, spec] of Object.entries(raw.services)) {
     if (!SERVICE_NAME.test(name)) throw new ConfigError(`${source}: service name "${name}" must match ${SERVICE_NAME}`)
     if ((BUILTIN_TOKENS as readonly string[]).includes(name)) {
       throw new ConfigError(`${source}: service name "${name}" is reserved`)
     }
     if (!isRecord(spec)) throw new ConfigError(`${source}: services.${name} must be an object`)
+    rejectUnknown(spec, SERVICE_FIELDS, `services.${name}.`, source)
     const offset = int(spec.offset, `services.${name}.offset`, source)
-    if (offset < 0 || offset >= range.step) {
-      throw new ConfigError(`${source}: services.${name}.offset must be in 0..${range.step - 1} (below range.step)`)
+    if (offset < 0) throw new ConfigError(`${source}: services.${name}.offset must be >= 0`)
+    const other = offsets.get(offset)
+    if (other !== undefined) {
+      throw new ConfigError(`${source}: services.${name}.offset ${offset} is already used by service "${other}"`)
     }
-    if (offsets.has(offset))
-      throw new ConfigError(`${source}: services.${name}.offset ${offset} is used by another service`)
-    offsets.add(offset)
-    const parsed: ServiceSpec = { offset }
-    if (spec.mainPort !== undefined) {
-      const mainPort = int(spec.mainPort, `services.${name}.mainPort`, source)
-      if (mainPort < 1 || mainPort > 65535)
-        throw new ConfigError(`${source}: services.${name}.mainPort must be 1..65535`)
-      if (mainPort >= range.min && mainPort <= lastPort) {
-        throw new ConfigError(
-          `${source}: services.${name}.mainPort ${mainPort} lies inside the allocation range; a linked worktree could be handed it`,
-        )
-      }
-      parsed.mainPort = mainPort
-    }
-    services[name] = parsed
+    offsets.set(offset, name)
+    if (spec.default === undefined) throw new ConfigError(`${source}: services.${name}.default is required`)
+    const def = int(spec.default, `services.${name}.default`, source)
+    if (def < 1 || def > 65535) throw new ConfigError(`${source}: services.${name}.default must be 1..65535`)
+    services[name] = { offset, default: def }
   }
-  const withMain = Object.values(services).filter((s) => s.mainPort !== undefined).length
-  if (withMain !== 0 && withMain !== Object.keys(services).length) {
-    throw new ConfigError(`${source}: mainPort must be set on every service or on none`)
+
+  let mainCheckout: MainCheckoutMode = 'default'
+  if (raw.mainCheckout !== undefined) {
+    if (raw.mainCheckout !== 'default' && raw.mainCheckout !== 'claim') {
+      throw new ConfigError(`${source}: mainCheckout must be "default" or "claim"`)
+    }
+    mainCheckout = raw.mainCheckout
+  }
+
+  if (raw.$schema !== undefined && typeof raw.$schema !== 'string') {
+    throw new ConfigError(`${source}: $schema must be a string`)
   }
 
   const known = new Set<string>([...BUILTIN_TOKENS, ...Object.keys(services)])
@@ -155,9 +129,10 @@ export function parseConfig(raw: unknown, source: string = CONFIG_FILE_NAME): Wo
     }
   }
 
-  const config: WorktreePortsConfig = { fileName, range, services, env }
+  const config: WorktreePortsConfig = { services, mainCheckout, env }
   if (raw.verify !== undefined) {
     if (!isRecord(raw.verify)) throw new ConfigError(`${source}: verify must be an object`)
+    rejectUnknown(raw.verify, ['url', 'field', 'expect'], 'verify.', source)
     const verify: VerifySpec = {
       url: nonEmpty(raw.verify.url, 'verify.url', source),
       field: nonEmpty(raw.verify.field, 'verify.field', source),
@@ -184,4 +159,34 @@ export function loadConfig(path: string): WorktreePortsConfig {
     throw new ConfigError(`${path}: invalid JSON: ${(err as Error).message}`)
   }
   return parseConfig(raw, path)
+}
+
+/** Nearest `worktree-ports.json` from `cwd` up to the filesystem root. Absolute and symlink-resolved. */
+export function findConfig(cwd: string = process.cwd()): string | undefined {
+  let dir = realpathSync(resolve(cwd))
+  for (;;) {
+    const candidate = join(dir, CONFIG_FILE_NAME)
+    if (existsSync(candidate)) return realpathSync(candidate)
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
+/** Ports a claim needs: `max(offset) + 1` rounded up to a multiple of 10. */
+export function blockSize(config: WorktreePortsConfig): number {
+  const maxOffset = Math.max(...Object.values(config.services).map((s) => s.offset))
+  return Math.ceil((maxOffset + 1) / 10) * 10
+}
+
+/** A service default inside the claim range could collide with a claimed block, so it is an error. */
+export function assertDefaultsOutsideRange(config: WorktreePortsConfig, range: PortRange, source: string): void {
+  for (const [name, spec] of Object.entries(config.services)) {
+    if (spec.default >= range.min && spec.default <= range.max) {
+      throw new ConfigError(
+        `${source}: services.${name}.default ${spec.default} lies inside the claim range ${range.min}-${range.max}; ` +
+          `a claimed block could be handed that port. Pick a default outside the range, or change the range in the settings file`,
+      )
+    }
+  }
 }
