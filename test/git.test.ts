@@ -43,7 +43,7 @@ test('a subdirectory resolves to the same worktree', (t) => {
 })
 
 test('outside any repository throws NotAGitWorktreeError', () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worktree-ports-nogit-')))
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-ports-nogit-')))
   assert.throws(() => locateWorktree(dir), NotAGitWorktreeError)
 })
 

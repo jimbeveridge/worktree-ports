@@ -32,6 +32,13 @@ function tarballPath(t: TestContext, scratch: string): string {
   return join(scratch, out.trim().split('\n').pop()!)
 }
 
+// Kills a child started by `start` with everything under it. On Windows there are no process groups, and killing
+// the shell alone would leave npm and the server running, so taskkill takes the whole tree.
+function killTree(child: ChildProcess): void {
+  if (WIN) execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
+  else process.kill(-child.pid!, 'SIGKILL')
+}
+
 async function waitListening(port: number, listening = true): Promise<void> {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
@@ -51,14 +58,13 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   assert.equal(await isListening(4000, 250), false, 'port 4000 must be free for the defaults assertion')
   assert.equal(await isListening(4100, 250), false, 'port 4100 must be free for the defaults assertion')
 
-  const scratch = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'worktree-ports-e2e-')))
+  const scratch = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'worktree-ports-e2e-')))
   const repo = makeRepo()
   const children: ChildProcess[] = []
   t.after(() => {
     for (const child of children) {
       try {
-        if (WIN) child.kill()
-        else process.kill(-child.pid!, 'SIGKILL')
+        killTree(child)
       } catch {
         // already gone
       }
@@ -100,18 +106,21 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
     })
   }
 
-  const cli = (dir: string) => join(dir, 'node_modules', '.bin', 'worktree-ports')
+  // The installed CLI as [file, ...args]. On Windows `.bin` holds a `.cmd` shim, which needs a shell, so run the
+  // package's bin script with node instead.
+  const cli = (dir: string, ...args: string[]): [string, string[]] =>
+    WIN
+      ? [process.execPath, [join(dir, 'node_modules', 'worktree-ports', 'dist', 'bin', 'worktree-ports.js'), ...args]]
+      : [join(dir, 'node_modules', '.bin', 'worktree-ports'), args]
   const show = (dir: string, env: NodeJS.ProcessEnv = baseEnv): Shown =>
-    JSON.parse(execFileSync(cli(dir), ['show', '--json'], { cwd: dir, env, encoding: 'utf8' }))
+    JSON.parse(execFileSync(...cli(dir, 'show', '--json'), { cwd: dir, env, encoding: 'utf8' }))
 
-  // Starts a command in its own process group, so teardown can kill the whole tree.
+  // Starts a command in its own process group (off Windows), so teardown can kill the whole tree.
   function start(dir: string, script: string, env: NodeJS.ProcessEnv = baseEnv): ChildProcess {
-    const child = spawn(NPM, ['run', script], { cwd: dir, env, detached: true, shell: WIN, stdio: 'ignore' })
+    const opts = { cwd: dir, env, detached: !WIN, shell: WIN, stdio: 'ignore', windowsHide: true } as const
+    const child = spawn(NPM, ['run', script], opts)
     children.push(child)
     return child
-  }
-  function stop(child: ChildProcess): void {
-    process.kill(-child.pid!, 'SIGKILL')
   }
 
   // 2. Both checkouts run backend and frontend at the same time.
@@ -140,17 +149,16 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   assert.ok(feature.block, 'the linked worktree has a claimed block')
 
   // 4. An impostor backend from the main checkout sits on the worktree's backend port.
-  for (const child of featureRun) stop(child)
+  for (const child of featureRun) killTree(child)
   await waitListening(feature.ports.backend, false)
   await waitListening(feature.ports.frontend, false)
   start(dirs.main, 'backend', { ...baseEnv, PORT: String(feature.ports.backend) })
   await waitListening(feature.ports.backend)
   const verify = await new Promise<{ code: number | null; stderr: string }>((resolve, reject) => {
-    const child = spawn(cli(dirs.worktree), ['exec', '--verify', '--', process.execPath, 'frontend.mjs'], {
+    const child = spawn(...cli(dirs.worktree, 'exec', '--verify', '--', process.execPath, 'frontend.mjs'), {
       cwd: dirs.worktree,
       env: baseEnv,
       detached: !WIN,
-      shell: WIN,
       stdio: ['ignore', 'ignore', 'pipe'],
     })
     children.push(child)

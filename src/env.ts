@@ -29,13 +29,37 @@ export interface MergedEnv {
   kept: string[]
 }
 
+/**
+ * The key `env` holds `name` under. Windows env names ignore case, and `process.env` hides that, but a copy of it
+ * is a plain object: there `name` matches the first set key under any casing. Elsewhere it is `name` itself.
+ */
+function envKey(env: Record<string, string | undefined>, name: string, platform: NodeJS.Platform): string {
+  if (platform !== 'win32' || env[name] !== undefined) return name
+  const upper = name.toUpperCase()
+  return Object.keys(env).find((k) => k.toUpperCase() === upper && env[k] !== undefined) ?? name
+}
+
+/** Set `PORT` and its marker, first dropping any other casing of them on Windows, so the child gets one copy. */
+function setPort(env: Record<string, string | undefined>, value: string, platform: NodeJS.Platform): void {
+  for (const name of ['PORT', PORT_MARKER]) {
+    if (platform === 'win32') {
+      for (const k of Object.keys(env)) if (k.toUpperCase() === name) delete env[k]
+    }
+    env[name] = value
+  }
+}
+
 /** Overlay `values` onto `base` without overwriting anything already set: an explicit variable always wins. */
-export function mergeEnv(base: Record<string, string | undefined>, values: Record<string, string>): MergedEnv {
+export function mergeEnv(
+  base: Record<string, string | undefined>,
+  values: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): MergedEnv {
   const env = { ...base }
   const applied: string[] = []
   const kept: string[] = []
   for (const [key, value] of Object.entries(values)) {
-    if (env[key] === undefined) {
+    if (env[envKey(env, key, platform)] === undefined) {
       env[key] = value
       applied.push(key)
     } else {
@@ -81,29 +105,29 @@ export function buildChildEnv(
   base: Record<string, string | undefined>,
   rendered: Record<string, string>,
   port?: PortRequest,
+  platform: NodeJS.Platform = process.platform,
 ): { env: Record<string, string | undefined>; outcomes: EnvOutcome[] } {
   const env = { ...base }
   const outcomes: EnvOutcome[] = []
   for (const [key, value] of Object.entries(rendered)) {
     if (port && key === 'PORT') continue
-    if (env[key] === undefined) {
+    const current = env[envKey(env, key, platform)]
+    if (current === undefined) {
       env[key] = value
       outcomes.push({ key, action: 'set', value, rendered: value })
     } else {
-      outcomes.push({ key, action: 'kept', value: env[key], rendered: value })
+      outcomes.push({ key, action: 'kept', value: current, rendered: value })
     }
   }
   if (port) {
     const value = String(port.port)
-    const current = base.PORT
+    const current = base[envKey(base, 'PORT', platform)]
     if (current === undefined) {
-      env.PORT = value
-      env[PORT_MARKER] = value
+      setPort(env, value, platform)
       outcomes.push({ key: 'PORT', action: 'set', value, rendered: value })
       outcomes.push({ key: PORT_MARKER, action: 'set', value, rendered: value })
-    } else if (current === base[PORT_MARKER]) {
-      env.PORT = value
-      env[PORT_MARKER] = value
+    } else if (current === base[envKey(base, PORT_MARKER, platform)]) {
+      setPort(env, value, platform)
       outcomes.push({ key: 'PORT', action: 'replaced', value, rendered: value, previous: current })
       outcomes.push({ key: PORT_MARKER, action: 'replaced', value, rendered: value, previous: current })
     } else {

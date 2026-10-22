@@ -184,11 +184,11 @@ export function loadConfig(path: string): WorktreePortsConfig {
  * Inside a checkout the config is part of a repository the user already chose to work in, so it isn't checked.
  */
 export function findConfig(cwd: string = process.cwd()): string | undefined {
-  let dir = realpathSync(resolve(cwd))
+  let dir = realpathSync.native(resolve(cwd))
   for (;;) {
     const candidate = join(dir, CONFIG_FILE_NAME)
     if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
-      const path = realpathSync(candidate)
+      const path = realpathSync.native(candidate)
       if (!insideCheckout(dir)) assertTrusted(path)
       return path
     }

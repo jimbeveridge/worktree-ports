@@ -9,7 +9,7 @@ test('the test run is isolated from the real environment', () => {
   for (const name of ['CI', 'WORKTREE_PORTS', 'GIT_DIR', 'GIT_WORK_TREE']) {
     assert.equal(env[name], undefined, `${name} must be unset`)
   }
-  const tmp = realpathSync(tmpdir())
+  const tmp = realpathSync.native(tmpdir())
   for (const name of ['WORKTREE_PORTS_STATE_DIR', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'APPDATA', 'LOCALAPPDATA']) {
     assert.ok(env[name]?.startsWith(tmp), `${name} must be under ${tmp}, got ${env[name]}`)
   }

@@ -23,7 +23,7 @@ const APP_DIR = 'worktree-ports'
 
 function realOrSelf(p: string): string {
   try {
-    return realpathSync(p)
+    return realpathSync.native(p)
   } catch {
     return resolve(p)
   }
@@ -38,7 +38,7 @@ function guardUnderTest(path: string, env: NodeJS.ProcessEnv, what: string): str
   const tail: string[] = []
   for (;;) {
     try {
-      existing = realpathSync(existing)
+      existing = realpathSync.native(existing)
       break
     } catch {
       const parent = resolve(existing, '..')

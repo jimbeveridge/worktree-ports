@@ -24,7 +24,7 @@ function checkGit(): void {
 
 checkGit()
 
-const root = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'worktree-ports-test-')))
+const root = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'worktree-ports-test-')))
 const dirs = {
   state: join(root, 'state'),
   xdgState: join(root, 'xdg-state'),

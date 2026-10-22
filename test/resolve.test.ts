@@ -43,7 +43,7 @@ function claimFiles(registry: Registry): string[] {
 }
 
 function tempDir(t: T, prefix: string): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }

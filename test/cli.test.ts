@@ -123,7 +123,7 @@ function verifyConfig(apiPort: number): Record<string, unknown> {
 }
 
 function noConfigDir(t: T): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worktree-ports-cli-noconfig-')))
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-ports-cli-noconfig-')))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -816,7 +816,9 @@ test('a full registry exits 1 with the RegistryFullError message', async (t) => 
     env: {},
   })
   const wt = repo.worktree('feat')
-  const r = await runCli(['show'], { cwd: wt, env: { WORKTREE_PORTS_STATE_DIR: stateDir, XDG_CONFIG_HOME: xdgConfig } })
+  // settings come from APPDATA on Windows and XDG_CONFIG_HOME elsewhere
+  const env = { WORKTREE_PORTS_STATE_DIR: stateDir, XDG_CONFIG_HOME: xdgConfig, APPDATA: xdgConfig }
+  const r = await runCli(['show'], { cwd: wt, env })
   assert.equal(r.code, 1)
   assert.match(r.stderr, /^worktree-ports: /)
   assert.match(r.stderr, /prune --unused-for 30d/)
@@ -917,6 +919,18 @@ test('exec sets WORKTREE_PORTS_ACTIVE=1 for the child, replacing any inherited v
   assert.equal(await run(['exec', ...dumpEnvArgs(file, 'WORKTREE_PORTS_ACTIVE')], io), 0)
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { WORKTREE_PORTS_ACTIVE: '1' })
 })
+
+test(
+  'exec on Windows keeps a variable and a pinned PORT set under another casing',
+  { skip: process.platform !== 'win32' && 'env names ignore case only on Windows' },
+  async (t) => {
+    const repo = repoWithConfig(t)
+    const file = join(repo.dir, 'env.json')
+    const { io } = capture(repo.main, { worktree_root: '/mine', Port: '5000' })
+    assert.equal(await run(['exec', '--port', 'api', ...dumpEnvArgs(file, 'WORKTREE_ROOT', 'PORT')], io), 0)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { WORKTREE_ROOT: '/mine', PORT: '5000' })
+  },
+)
 
 test('exec sets WORKTREE_PORTS_ACTIVE=1 even under WORKTREE_PORTS=off and with no config', async (t) => {
   const repo = repoWithConfig(t)

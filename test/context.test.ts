@@ -11,7 +11,7 @@ const CONFIG = parseConfig({ services: { api: { offset: 0, default: 8080 } } })
 const MAIN_CLAIMS = parseConfig({ services: { api: { offset: 0, default: 8080 } }, mainCheckout: 'claim' })
 
 function noGitDir(t: { after: (fn: () => void) => void }): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worktree-ports-nogit-')))
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-ports-nogit-')))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   return dir
 }

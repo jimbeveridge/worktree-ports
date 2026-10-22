@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { DEFAULT_RANGE, SettingsError, loadSettings, settingsPath, stateDir } from '../src/settings.ts'
 
-const tmp = realpathSync(tmpdir())
+const tmp = realpathSync.native(tmpdir())
 
 test('stateDir honours WORKTREE_PORTS_STATE_DIR, then XDG_STATE_HOME, then ~/.local/state', () => {
   assert.equal(stateDir({ WORKTREE_PORTS_STATE_DIR: '/x/state', XDG_STATE_HOME: '/y' }, 'linux'), '/x/state')

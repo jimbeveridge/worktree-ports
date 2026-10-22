@@ -28,7 +28,34 @@ test('mergeEnv treats an empty string as set', () => {
   assert.deepEqual(mergeEnv({ PORT: '' }, { PORT: '1' }).kept, ['PORT'])
 })
 
+test('mergeEnv on Windows sees a variable set under another casing', () => {
+  const r = mergeEnv({ Worktree_Root: '/mine' }, { WORKTREE_ROOT: '/r', WORKTREE_API: 'x' }, 'win32')
+  assert.deepEqual(r.env, { Worktree_Root: '/mine', WORKTREE_API: 'x' })
+  assert.deepEqual(r.kept, ['WORKTREE_ROOT'])
+  // elsewhere names are case-sensitive
+  assert.deepEqual(mergeEnv({ Worktree_Root: '/mine' }, { WORKTREE_ROOT: '/r' }, 'linux').applied, ['WORKTREE_ROOT'])
+})
+
 const web = { service: 'web', port: 27421 }
+
+test('buildChildEnv on Windows keeps a rendered variable set under another casing', () => {
+  const { env, outcomes } = buildChildEnv({ worktree_root: '/mine' }, { WORKTREE_ROOT: '/r' }, undefined, 'win32')
+  assert.deepEqual(env, { worktree_root: '/mine' })
+  assert.deepEqual(outcomes, [{ key: 'WORKTREE_ROOT', action: 'kept', value: '/mine', rendered: '/r' }])
+})
+
+test('buildChildEnv on Windows reads PORT and its marker under any casing', () => {
+  const kept = buildChildEnv({ Port: '5000' }, {}, web, 'win32')
+  assert.deepEqual(kept.env, { Port: '5000' })
+  assert.deepEqual(kept.outcomes, [{ key: 'PORT', action: 'kept', value: '5000', rendered: '27421' }])
+
+  const replaced = buildChildEnv({ port: '27420', worktree_ports_port: '27420' }, {}, web, 'win32')
+  assert.deepEqual(replaced.env, { PORT: '27421', WORKTREE_PORTS_PORT: '27421' })
+  assert.deepEqual(
+    replaced.outcomes.map((o) => `${o.action} ${o.key}`),
+    ['replaced PORT', 'replaced WORKTREE_PORTS_PORT'],
+  )
+})
 
 test('buildChildEnv without a port behaves like mergeEnv', () => {
   const { env, outcomes } = buildChildEnv({ A: 'x' }, { A: 'y', B: 'z' })

@@ -136,7 +136,7 @@ test('blockSize rounds max offset + 1 up to a multiple of 10', () => {
 })
 
 function scratch(): string {
-  const dir = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'wtp-config-')))
+  const dir = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'wtp-config-')))
   return dir
 }
 

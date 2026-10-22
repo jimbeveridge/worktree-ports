@@ -73,7 +73,7 @@ function relOrAbs(root: string, configPath: string): string {
 
 function realpathOr(path: string): string {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
     return path // loadConfig reports the unreadable path
   }
@@ -81,7 +81,7 @@ function realpathOr(path: string): string {
 
 /** The symlink-resolved cwd and config path: `configPath` resolved against cwd, else discovery upward. */
 function locateConfig(givenCwd: string, configPath: string | undefined): { cwd: string; configPath: string } {
-  const cwd = realpathSync(givenCwd)
+  const cwd = realpathSync.native(givenCwd)
   if (configPath !== undefined) return { cwd, configPath: realpathOr(resolve(cwd, configPath)) }
   const found = findConfig(cwd)
   if (found === undefined)

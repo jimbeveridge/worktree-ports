@@ -41,7 +41,7 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 export function makeRepo(): TempRepo {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worktree-ports-')))
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-ports-')))
   const main = join(dir, 'main')
   git(dir, 'init', '-q', '-b', 'main', main)
   git(main, 'commit', '-q', '--allow-empty', '-m', 'init')

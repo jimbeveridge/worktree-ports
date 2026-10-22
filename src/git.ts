@@ -49,7 +49,7 @@ export function locateWorktree(cwd: string = process.cwd()): WorktreeLocation {
   const [root, gitDir, commonDir] = out
     .trim()
     .split('\n')
-    .map((p) => realpathSync(p.trim()))
+    .map((p) => realpathSync.native(p.trim()))
   if (root === undefined || gitDir === undefined || commonDir === undefined) {
     throw new NotAGitWorktreeError(`unexpected \`git rev-parse\` output: ${JSON.stringify(out)}`)
   }

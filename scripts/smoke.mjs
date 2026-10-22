@@ -12,7 +12,7 @@ if (!tarball) {
 }
 
 const win = process.platform === 'win32'
-const root = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'worktree-ports-smoke-')))
+const root = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'worktree-ports-smoke-')))
 const stateDir = join(root, 'state')
 mkdirSync(stateDir)
 
