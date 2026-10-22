@@ -407,7 +407,8 @@ backend adds the checkout root to its health response. The handler fails
 closed: it includes the root only when `WORKTREE_ROOT` is set (only
 `worktree-ports exec` sets it, so a deployment never has it) and the socket's
 peer is a loopback address. Loopback alone isn't enough, since a reverse proxy
-on the same host makes every request look local; an environment-name gate
+on the same host makes every request look local, and the loopback check still
+protects a deployment that `WORKTREE_ROOT` leaks into. An environment-name gate
 (`NODE_ENV !== "production"`) fails open wherever the variable is unset. The
 peer comes from the socket, never from a forwarding header or proxy trust:
 

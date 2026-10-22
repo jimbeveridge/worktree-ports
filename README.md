@@ -292,13 +292,14 @@ worktree-ports: http://127.0.0.1:27420/healthz belongs to "/home/me/src/other", 
 Put the check on the service that depends on the others (usually the frontend) and point `verify.url` at the service it
 depends on (the backend). `npx worktree-ports status` runs the same check without starting anything.
 
-The checked server must expose the checkout root, or another per-checkout value, in its health response. That value
-is a local filesystem path, so the handler should fail closed: include it only when `WORKTREE_ROOT` is set (only
+The checked server must expose the checkout root, or another per-checkout value, in its health response. That value is a
+local filesystem path, so the handler should fail closed: include it only when `WORKTREE_ROOT` is set (only
 `worktree-ports exec` sets it, through `env` as in the configuration above, so a deployed server never has it) and the
-request's direct peer is a loopback address. Neither check is enough alone: behind a reverse proxy on the same host every
-request arrives from loopback, and a variable can leak into a deployment. Don't gate on `NODE_ENV` or `APP_ENV` either,
-since a deployment that forgets to set them exposes the path. Read the peer from the socket, not from `X-Forwarded-For`
-or any other header, and don't enable proxy trust for it (Express `trust proxy`, Werkzeug `ProxyFix`).
+request's direct peer is a loopback address. Loopback alone isn't enough: behind a reverse proxy on the same host every
+request arrives from loopback. The loopback check still keeps the path off the network if `WORKTREE_ROOT` ever leaks
+into a deployment. Don't gate on `NODE_ENV` or `APP_ENV` either, since a deployment that forgets to set them exposes the
+path. Read the peer from the socket, not from `X-Forwarded-For` or any other header, and don't enable proxy trust for it
+(Express `trust proxy`, Werkzeug `ProxyFix`).
 
 **Node (Express):**
 
