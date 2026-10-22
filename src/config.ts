@@ -14,7 +14,7 @@ export interface ServiceSpec {
 }
 
 export interface VerifySpec {
-  /** URL template, e.g. `http://127.0.0.1:{api}/healthz`. */
+  /** URL template, e.g. `http://127.0.0.1:{api}/__worktree`. */
   url: string
   /** Top-level JSON field of the response that names the owning worktree. */
   field: string

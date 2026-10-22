@@ -11,7 +11,7 @@
     "WORKTREE_ROOT": "{root}"
   },
   "verify": {
-    "url": "http://127.0.0.1:{backend}/healthz",
+    "url": "http://127.0.0.1:{backend}/__worktree",
     "field": "worktreeRoot",
     "expect": "{root}"
   }

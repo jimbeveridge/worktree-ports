@@ -38,7 +38,7 @@ const example = {
     API_ORIGIN: 'http://127.0.0.1:{api}',
     WORKTREE_ROOT: '{root}',
   },
-  verify: { url: 'http://127.0.0.1:{api}/healthz', field: 'worktreeRoot', expect: '{root}' },
+  verify: { url: 'http://127.0.0.1:{api}/__worktree', field: 'worktreeRoot', expect: '{root}' },
 }
 
 const minimal = { services: { api: { offset: 0, default: 8080 } } }
@@ -52,7 +52,7 @@ test('parseConfig accepts the spec example verbatim', () => {
   assert.deepEqual(c.services, { api: { offset: 0, default: 8080 }, web: { offset: 1, default: 3000 } })
   assert.equal(c.mainCheckout, 'default')
   assert.equal(c.env.PORT, '{web}')
-  assert.deepEqual(c.verify, { url: 'http://127.0.0.1:{api}/healthz', field: 'worktreeRoot', expect: '{root}' })
+  assert.deepEqual(c.verify, { url: 'http://127.0.0.1:{api}/__worktree', field: 'worktreeRoot', expect: '{root}' })
 })
 
 test('parseConfig defaults mainCheckout and env, and ignores $schema', () => {

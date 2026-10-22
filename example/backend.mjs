@@ -11,13 +11,13 @@ function send(res, status, body) {
 
 const server = createServer((req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost')
-  if (pathname === '/healthz') {
-    // The tool's verify check reads this field. Fail closed: reveal the root only when worktree-ports set
-    // WORKTREE_ROOT and the socket's peer (never a forwarding header) is loopback.
+  if (pathname === '/__worktree') {
+    // Dev-only route the tool's verify check reads. Fail closed: answer only when worktree-ports set WORKTREE_ROOT
+    // and the socket's peer (never a forwarding header) is loopback; otherwise it is a plain 404.
     const peer = req.socket.remoteAddress ?? ''
     const isLoopback = peer === '::1' || /^(::ffff:)?127\./.test(peer)
-    const exposeRoot = Boolean(worktreeRoot) && isLoopback
-    send(res, 200, { status: 'ok', ...(exposeRoot ? { worktreeRoot } : {}) })
+    if (worktreeRoot && isLoopback) send(res, 200, { worktreeRoot })
+    else send(res, 404, { error: 'not found' })
   } else if (pathname === '/api/hello') {
     send(res, 200, { worktreeRoot, port })
   } else {

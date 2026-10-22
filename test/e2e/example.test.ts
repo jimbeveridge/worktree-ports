@@ -126,6 +126,7 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   assert.equal(mainHello.port, main.ports.backend)
   assert.equal(featureHello.worktreeRoot, worktree)
   assert.equal(featureHello.port, feature.ports.backend)
+  assert.deepEqual(await getJson(`http://127.0.0.1:${feature.ports.backend}/__worktree`), { worktreeRoot: worktree })
   assert.deepEqual(main.ports, { backend: 4100, frontend: 4000 })
   assert.ok(feature.ports.frontend >= 20000 && feature.ports.backend >= 20000, JSON.stringify(feature.ports))
   assert.ok(feature.block, 'the linked worktree has a claimed block')

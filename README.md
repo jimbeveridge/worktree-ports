@@ -281,21 +281,23 @@ server at `verify.url` for a JSON field and compares it with `verify.expect`:
 
 - **Match** (the field equals `verify.expect`): the command starts.
 - **Mismatch** (the field names another checkout): it refuses and exits 1.
-- **Unreachable or unreported** (nothing answered, or there is no such field): it warns and starts anyway, since there
-  is nothing yet to conflict with.
+- **Unreachable or unreported** (nothing answered, or the response has no such field, as with a 404 or a body that
+  isn't JSON): it warns and starts anyway, since there is nothing yet to conflict with.
 
 ```console
 $ npx worktree-ports exec --verify -- npm run dev
-worktree-ports: http://127.0.0.1:27420/healthz belongs to "/home/me/src/other", not this checkout ("/home/me/src/app-feat"). Refusing to start: requests would reach the wrong checkout.
+worktree-ports: http://127.0.0.1:27420/__worktree belongs to "/home/me/src/other", not this checkout ("/home/me/src/app-feat"). Refusing to start: requests would reach the wrong checkout.
 ```
 
 Put the check on the service that depends on the others (usually the frontend) and point `verify.url` at the service it
 depends on (the backend). `npx worktree-ports status` runs the same check without starting anything.
 
-The checked server must expose the checkout root, or another per-checkout value, in its health response. That value is a
-local filesystem path, so the handler should fail closed: include it only when `WORKTREE_ROOT` is set (only
-`worktree-ports exec` sets it, through `env` as in the configuration above, so a deployed server never has it) and the
-request's direct peer is a loopback address. Loopback alone isn't enough: behind a reverse proxy on the same host every
+The checked server must expose the checkout root, or another per-checkout value, on a dev-only route such as
+`/__worktree`. Use a route of its own rather than your health endpoint: health endpoints are often polled by load
+balancers and monitors, sometimes from outside, and their response is a contract with that monitoring. The root is a
+local filesystem path, so the route should fail closed: answer with `{"worktreeRoot": ...}` only when `WORKTREE_ROOT`
+is set (only `worktree-ports exec` sets it, through `env` as in the configuration above, so a deployed server never has
+it) and the request's direct peer is a loopback address, and return 404 otherwise. Loopback alone isn't enough: behind a reverse proxy on the same host every
 request arrives from loopback. The loopback check still keeps the path off the network if `WORKTREE_ROOT` ever leaks
 into a deployment. Don't gate on `NODE_ENV` or `APP_ENV` either, since a deployment that forgets to set them exposes the
 path. Read the peer from the socket, not from `X-Forwarded-For` or any other header, and don't enable proxy trust for it
@@ -304,26 +306,28 @@ path. Read the peer from the socket, not from `X-Forwarded-For` or any other hea
 **Node (Express):**
 
 ```js
-app.get('/healthz', (req, res) => {
+app.get('/__worktree', (req, res) => {
   // The socket's peer, not req.ip, which depends on `trust proxy`.
   const peer = req.socket.remoteAddress ?? ''
   const local = peer === '::1' || /^(::ffff:)?127\./.test(peer)
   const root = process.env.WORKTREE_ROOT
-  res.json({ status: 'ok', ...(root && local ? { worktreeRoot: root } : {}) })
+  if (!root || !local) return res.sendStatus(404)
+  res.json({ worktreeRoot: root })
 })
 ```
 
 **Go:**
 
 ```go
-http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-	body := map[string]string{"status": "ok"}
+http.HandleFunc("/__worktree", func(w http.ResponseWriter, r *http.Request) {
+	root := os.Getenv("WORKTREE_ROOT")
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if root := os.Getenv("WORKTREE_ROOT"); root != "" && err == nil && net.ParseIP(host).IsLoopback() {
-		body["worktreeRoot"] = root
+	if root == "" || err != nil || !net.ParseIP(host).IsLoopback() {
+		http.NotFound(w, r)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(body)
+	json.NewEncoder(w).Encode(map[string]string{"worktreeRoot": root})
 })
 ```
 
@@ -338,14 +342,13 @@ def is_loopback(addr):
     # Before Python 3.13, ::ffff:127.0.0.1 doesn't count as loopback.
     return (getattr(ip, "ipv4_mapped", None) or ip).is_loopback
 
-@app.get("/healthz")
-def healthz():
-    body = {"status": "ok"}
+@app.get("/__worktree")
+def worktree():
     root = os.environ.get("WORKTREE_ROOT")
     # remote_addr is the socket's peer unless ProxyFix rewrites it.
-    if root and is_loopback(request.remote_addr):
-        body["worktreeRoot"] = root
-    return jsonify(body)
+    if not root or not is_loopback(request.remote_addr):
+        abort(404)
+    return jsonify(worktreeRoot=root)
 ```
 
 ## Wiring examples

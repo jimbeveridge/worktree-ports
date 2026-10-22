@@ -140,7 +140,7 @@ claim (§7b), so two sub-projects never share a block.
     "WORKTREE_ROOT": "{root}"
   },
   "verify": {
-    "url": "http://127.0.0.1:{api}/healthz",
+    "url": "http://127.0.0.1:{api}/__worktree",
     "field": "worktreeRoot",
     "expect": "{root}"
   }
@@ -403,21 +403,25 @@ Exit codes:
 
 The contract with servers is just environment variables. A server reads its
 port (or listen address) from the variable the config names. For `--verify`, a
-backend adds the checkout root to its health response. The handler fails
-closed: it includes the root only when `WORKTREE_ROOT` is set (only
-`worktree-ports exec` sets it, so a deployment never has it) and the socket's
-peer is a loopback address. Loopback alone isn't enough, since a reverse proxy
+backend reports the checkout root on a dev-only route, `/__worktree`, not on
+its health endpoint: health endpoints are often polled by load balancers and
+monitors, sometimes from outside, and their response is a contract with that
+monitoring. The route fails closed: it answers `{"worktreeRoot": …}` only when
+`WORKTREE_ROOT` is set (only `worktree-ports exec` sets it, so a deployment
+never has it) and the socket's peer is a loopback address, and returns 404
+otherwise, which the tool reads as unreported. Loopback alone isn't enough, since a reverse proxy
 on the same host makes every request look local, and the loopback check still
 protects a deployment that `WORKTREE_ROOT` leaks into. An environment-name gate
 (`NODE_ENV !== "production"`) fails open wherever the variable is unset. The
 peer comes from the socket, never from a forwarding header or proxy trust:
 
 ```ts
-app.get('/healthz', (req, res) => {
+app.get('/__worktree', (req, res) => {
   const peer = req.socket.remoteAddress ?? ''
   const local = peer === '::1' || /^(::ffff:)?127\./.test(peer)
   const root = process.env.WORKTREE_ROOT
-  res.json({ status: 'ok', ...(root && local ? { worktreeRoot: root } : {}) })
+  if (!root || !local) return res.sendStatus(404)
+  res.json({ worktreeRoot: root })
 })
 ```
 
@@ -518,11 +522,11 @@ example/
 - **`worktree-ports.json`:** services `backend` (offset 0, default 4100) and
   `frontend` (offset 1, default 4000). Env: `BACKEND_PORT`, `PORT`,
   `BACKEND_ORIGIN=http://127.0.0.1:{backend}`, `WORKTREE_ROOT={root}`. A
-  `verify` block points at the backend's `/healthz`, field `worktreeRoot`.
+  `verify` block points at the backend's `/__worktree`, field `worktreeRoot`.
 - **`backend.mjs`:** listens on `127.0.0.1:$BACKEND_PORT`. It serves
-  `/healthz` → `{"status":"ok","worktreeRoot":…}`, with the root included only
-  when `WORKTREE_ROOT` is set and the socket's peer is a loopback address
-  (§10), and `/api/hello` → the worktree root and its own port.
+  `/__worktree` → `{"worktreeRoot":…}` only when `WORKTREE_ROOT` is set and
+  the socket's peer is a loopback address, and 404 otherwise (§10), and
+  `/api/hello` → the worktree root and its own port.
 - **`frontend.mjs`:** listens on `127.0.0.1:$PORT`, proxies `/api/*` to
   `$BACKEND_ORIGIN`, and serves one HTML page. The page shows the worktree the
   frontend runs in next to the one the backend reports, highlighting any
