@@ -4,7 +4,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { isListening } from '../../src/status.ts'
 import { git, makeRepo } from '../helpers/repo.ts'
@@ -21,7 +21,7 @@ interface Shown {
 
 function tarballPath(t: TestContext, scratch: string): string {
   const given = process.env.WORKTREE_PORTS_TARBALL
-  if (given) return given
+  if (given) return resolve(given)
   const out = execFileSync(NPM, ['pack', '--silent', '--pack-destination', scratch], {
     cwd: REPO,
     encoding: 'utf8',
@@ -47,7 +47,7 @@ async function getJson(url: string): Promise<any> {
   return res.json()
 }
 
-test('example: two checkouts, one registry, and a verify mismatch', async (t) => {
+test('example: two checkouts, one registry, and a verify mismatch', { timeout: 90_000 }, async (t) => {
   assert.equal(await isListening(4000, 250), false, 'port 4000 must be free for the defaults assertion')
   assert.equal(await isListening(4100, 250), false, 'port 4100 must be free for the defaults assertion')
 
@@ -79,8 +79,8 @@ test('example: two checkouts, one registry, and a verify mismatch', async (t) =>
   const stateDir = join(scratch, 'state')
   mkdirSync(stateDir)
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, WORKTREE_PORTS_STATE_DIR: stateDir }
-  delete baseEnv.CI
-  delete baseEnv.WORKTREE_PORTS
+  for (const name of ['CI', 'WORKTREE_PORTS', 'PORT', 'BACKEND_PORT', 'BACKEND_ORIGIN', 'WORKTREE_ROOT'])
+    delete baseEnv[name]
 
   const dirs = { main: join(repo.main, 'example'), worktree: join(worktree, 'example') }
   for (const dir of Object.values(dirs)) {

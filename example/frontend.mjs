@@ -5,6 +5,11 @@ const port = Number(process.env.PORT)
 const origin = new URL(process.env.BACKEND_ORIGIN ?? 'http://127.0.0.1:4100')
 const worktreeRoot = process.env.WORKTREE_ROOT ?? ''
 
+if (!Number.isInteger(port)) {
+  console.error('PORT is not set. Start this with: npm run frontend')
+  process.exit(2)
+}
+
 const page = `<!doctype html>
 <meta charset="utf-8">
 <title>worktree-ports example</title>
