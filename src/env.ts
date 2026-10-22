@@ -44,3 +44,67 @@ export function mergeEnv(base: Record<string, string | undefined>, values: Recor
   }
   return { env, applied, kept }
 }
+
+/** The variable `--port` sets alongside `PORT`, so a nested `exec --port` can tell its own `PORT` from a pinned one. */
+export const PORT_MARKER = 'WORKTREE_PORTS_PORT'
+
+export type EnvAction = 'set' | 'replaced' | 'kept'
+
+export interface EnvOutcome {
+  key: string
+  action: EnvAction
+  /** The value the child receives. */
+  value: string
+  /** The value this checkout renders for the key. */
+  rendered: string
+  /** For `replaced`: the inherited value that was replaced. */
+  previous?: string
+}
+
+export interface PortRequest {
+  service: string
+  port: number
+}
+
+/**
+ * Build the child's environment. Rendered keys follow `mergeEnv`'s never-overwrite rule, except that with `port`
+ * the flag owns `PORT` (a rendered `PORT` is ignored) and its marker (spec §8a):
+ * - `base.PORT` unset: set `PORT` and the marker.
+ * - `base.PORT` equals the inherited marker: an outer `exec --port` set it, so replace both.
+ * - otherwise a person or CI pinned `PORT`: keep it, leave the marker alone and emit no marker outcome.
+ */
+export function buildChildEnv(
+  base: Record<string, string | undefined>,
+  rendered: Record<string, string>,
+  port?: PortRequest,
+): { env: Record<string, string | undefined>; outcomes: EnvOutcome[] } {
+  const env = { ...base }
+  const outcomes: EnvOutcome[] = []
+  for (const [key, value] of Object.entries(rendered)) {
+    if (port && key === 'PORT') continue
+    if (env[key] === undefined) {
+      env[key] = value
+      outcomes.push({ key, action: 'set', value, rendered: value })
+    } else {
+      outcomes.push({ key, action: 'kept', value: env[key], rendered: value })
+    }
+  }
+  if (port) {
+    const value = String(port.port)
+    const current = base.PORT
+    if (current === undefined) {
+      env.PORT = value
+      env[PORT_MARKER] = value
+      outcomes.push({ key: 'PORT', action: 'set', value, rendered: value })
+      outcomes.push({ key: PORT_MARKER, action: 'set', value, rendered: value })
+    } else if (current === base[PORT_MARKER]) {
+      env.PORT = value
+      env[PORT_MARKER] = value
+      outcomes.push({ key: 'PORT', action: 'replaced', value, rendered: value, previous: current })
+      outcomes.push({ key: PORT_MARKER, action: 'replaced', value, rendered: value, previous: current })
+    } else {
+      outcomes.push({ key: 'PORT', action: 'kept', value: current, rendered: value })
+    }
+  }
+  return { env, outcomes }
+}

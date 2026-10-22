@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { planSpawn } from './command.ts'
 import { readMode } from './context.ts'
-import { mergeEnv } from './env.ts'
+import { buildChildEnv, PORT_MARKER, type PortRequest } from './env.ts'
 import { openRegistry, parseDuration, type ListedClaim, type LockOptions, type Registry } from './registry/index.ts'
 import { NoConfigError, checkoutOwner, resolvePorts, type ResolvedPorts } from './resolve.ts'
 import { serviceStatus } from './status.ts'
@@ -29,8 +29,11 @@ export interface ParsedArgs {
   command: Command
   json: boolean
   verify: boolean
+  verbose: boolean
   dryRun: boolean
   config?: string
+  /** `exec`/`env --port`: the service whose port becomes `PORT`. */
+  port?: string
   /** `prune --unused-for`, in days. */
   unusedForDays?: number
   /** `exec`'s command and its arguments. */
@@ -40,8 +43,8 @@ export interface ParsedArgs {
 const USAGE = `usage:
   worktree-ports show    [--json] [--config <path>]
   worktree-ports status  [--json] [--config <path>]
-  worktree-ports env     [--config <path>]
-  worktree-ports exec    [--verify] [--config <path>] -- <command> [args...]
+  worktree-ports env     [--port <service>] [--config <path>]
+  worktree-ports exec    [--port <service>] [--verify] [-v | --verbose] [--config <path>] -- <command> [args...]
   worktree-ports list    [--json]
   worktree-ports release [--config <path>]
   worktree-ports prune   [--unused-for <duration>] [--dry-run]
@@ -54,8 +57,8 @@ const OFF_MESSAGE = 'worktree-ports is off (WORKTREE_PORTS=off)'
 const OPTIONS: Record<Command, readonly string[]> = {
   show: ['--json', '--config'],
   status: ['--json', '--config'],
-  env: ['--config'],
-  exec: ['--verify', '--config'],
+  env: ['--port', '--config'],
+  exec: ['--port', '--verify', '-v', '--verbose', '--config'],
   list: ['--json'],
   release: ['--config'],
   prune: ['--unused-for', '--dry-run'],
@@ -74,7 +77,7 @@ function toCommand(word: string | undefined): Command {
 export function parseArgs(argv: string[]): ParsedArgs {
   const [word, ...args] = argv
   const command = toCommand(word)
-  const parsed: ParsedArgs = { command, json: false, verify: false, dryRun: false, rest: [] }
+  const parsed: ParsedArgs = { command, json: false, verify: false, verbose: false, dryRun: false, rest: [] }
   const allowed = OPTIONS[command]
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!
@@ -91,10 +94,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === '--json') parsed.json = true
     else if (arg === '--verify') parsed.verify = true
     else if (arg === '--dry-run') parsed.dryRun = true
+    else if (arg === '-v' || arg === '--verbose') parsed.verbose = true
     else {
       const value = args[++i]
-      if (value === undefined) throw new UsageError(`${arg} needs a value`)
+      if (value === undefined || value === '--') throw new UsageError(`${arg} needs a value`)
       if (arg === '--config') parsed.config = value
+      else if (arg === '--port') parsed.port = value
       else {
         try {
           parsed.unusedForDays = parseDuration(value)
@@ -250,12 +255,30 @@ async function status(r: ResolvedPorts, json: boolean, io: CliIo): Promise<numbe
   return 0
 }
 
+/**
+ * The `--port` request, `undefined` when absent or when the tool is off, or 1 (after printing why) when the
+ * service is not declared.
+ */
+function portRequest(r: ResolvedPorts, args: ParsedArgs, io: CliIo): PortRequest | undefined | 1 {
+  if (args.port === undefined || r.context.kind === 'off') return undefined
+  const port = r.ports[args.port]
+  if (port === undefined) {
+    io.stderr(
+      `${PREFIX} unknown service "${args.port}" for --port; declared services: ${Object.keys(r.ports).join(', ')}`,
+    )
+    return 1
+  }
+  return { service: args.port, port }
+}
+
 async function exec(r: ResolvedPorts, args: ParsedArgs, io: CliIo): Promise<number> {
-  const { env, kept } = mergeEnv(io.env, r.env)
-  for (const key of kept) {
-    if (io.env[key] !== r.env[key]) {
+  const port = portRequest(r, args, io)
+  if (port === 1) return 1
+  const { env, outcomes } = buildChildEnv(io.env, r.env, port)
+  for (const o of outcomes) {
+    if (o.action === 'kept' && o.value !== o.rendered) {
       io.stderr(
-        `${PREFIX} ${key} is already set to "${io.env[key]}"; keeping it (this checkout would use "${r.env[key]}")`,
+        `${PREFIX} ${o.key} is already set to "${o.value}"; keeping it (this checkout would use "${o.rendered}")`,
       )
     }
   }
@@ -353,7 +376,16 @@ async function dispatch(args: ParsedArgs, io: CliIo): Promise<number> {
   if (args.command === 'show') return show(resolved, args.json, io)
   if (args.command === 'status') return status(resolved, args.json, io)
   if (args.command === 'env') {
-    for (const [key, value] of Object.entries(resolved.env)) io.stdout(`export ${key}=${shellQuote(value)}`)
+    const port = portRequest(resolved, args, io)
+    if (port === 1) return 1
+    for (const [key, value] of Object.entries(resolved.env)) {
+      if (port && key === 'PORT') continue
+      io.stdout(`export ${key}=${shellQuote(value)}`)
+    }
+    if (port) {
+      io.stdout(`export PORT=${shellQuote(String(port.port))}`)
+      io.stdout(`export ${PORT_MARKER}=${shellQuote(String(port.port))}`)
+    }
     return 0
   }
   return exec(resolved, args, io)

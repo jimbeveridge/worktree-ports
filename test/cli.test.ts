@@ -131,7 +131,7 @@ function noConfigDir(t: T): string {
 // --- parseArgs and usage ---
 
 test('parseArgs', () => {
-  const base = { json: false, verify: false, dryRun: false, rest: [] }
+  const base = { json: false, verify: false, verbose: false, dryRun: false, rest: [] }
   assert.deepEqual(parseArgs(['exec', '--verify', '--config', 'c.json', '--', 'vite', '--host']), {
     ...base,
     command: 'exec',
@@ -151,6 +151,17 @@ test('parseArgs', () => {
   })
   assert.deepEqual(parseArgs(['--version']), { ...base, command: 'version' })
   assert.deepEqual(parseArgs(['--help']), { ...base, command: 'help' })
+  assert.deepEqual(parseArgs(['exec', '--port', 'web', '--', 'x']), {
+    ...base,
+    command: 'exec',
+    port: 'web',
+    rest: ['x'],
+  })
+  assert.equal(parseArgs(['env', '--port', 'web']).port, 'web')
+  assert.equal(parseArgs(['exec', '-v', '--', 'x']).verbose, true)
+  assert.equal(parseArgs(['exec', '--verbose', '--', 'x']).verbose, true)
+  assert.throws(() => parseArgs(['show', '--port', 'web']), /--port does not apply to show/)
+  assert.throws(() => parseArgs(['env', '-v']), /-v does not apply to env/)
   assert.throws(() => parseArgs([]), UsageError)
   assert.throws(() => parseArgs(['launch']), UsageError)
   assert.throws(() => parseArgs(['constructor']), UsageError)
@@ -267,6 +278,21 @@ test('env prints shell-quoted exports', async (t) => {
   const { io, out } = capture(repo.main)
   assert.equal(await run(['env'], io), 0)
   assert.deepEqual(out, [`export ROOT='${repo.main}/it'\\''s'`, `export PORT='8080'`])
+})
+
+test('env --port appends PORT and the marker', async (t) => {
+  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', PORT: '{api}' } })
+  const { io, out } = capture(repo.main)
+  assert.equal(await run(['env', '--port', 'web'], io), 0)
+  assert.deepEqual(out, [`export ROOT='${repo.main}'`, `export PORT='3000'`, `export WORKTREE_PORTS_PORT='3000'`])
+})
+
+test('env --port with an unknown service exits 1', async (t) => {
+  const repo = repoWithConfig(t)
+  const { io, out, err } = capture(repo.main)
+  assert.equal(await run(['env', '--port', 'nope'], io), 1)
+  assert.deepEqual(out, [])
+  assert.match(err.join('\n'), /unknown service "nope" for --port; declared services: api, web/)
 })
 
 // --- exec ---
@@ -670,4 +696,75 @@ test('a full registry exits 1 with the RegistryFullError message', async (t) => 
   assert.equal(r.code, 1)
   assert.match(r.stderr, /^worktree-ports: /)
   assert.match(r.stderr, /prune --unused-for 30d/)
+})
+
+// --- exec --port ---
+
+test('--port and --config need a real value', async (t) => {
+  const dir = noConfigDir(t)
+  for (const flag of ['--port', '--config']) {
+    const { io, err } = capture(dir)
+    assert.equal(await run(['exec', flag, '--', 'node'], io), 2)
+    assert.match(err.join('\n'), new RegExp(`${flag} needs a value`))
+  }
+})
+
+test('exec --port sets PORT and the marker for the child', async (t) => {
+  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}' } })
+  const wt = repo.worktree('feat')
+  const show = capture(wt)
+  assert.equal(await run(['show', '--json'], show.io), 0)
+  const webPort = String(JSON.parse(show.out.join('\n')).ports.web)
+  const file = join(repo.dir, 'env.json')
+  const { io } = capture(wt)
+  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT', 'ROOT')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
+    PORT: webPort,
+    WORKTREE_PORTS_PORT: webPort,
+    ROOT: wt,
+  })
+})
+
+test('exec --port in the main checkout uses the default', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'env.json')
+  const { io } = capture(repo.main)
+  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT')], io), 0)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).PORT, '3000')
+})
+
+test('nested exec --port replaces the outer PORT', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'env.json')
+  const { io, err } = capture(repo.main, { PORT: '8080', WORKTREE_PORTS_PORT: '8080' })
+  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: '3000', WORKTREE_PORTS_PORT: '3000' })
+  assert.doesNotMatch(err.join('\n'), /already set/)
+})
+
+test('exec --port keeps a pinned PORT and warns', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'env.json')
+  const { io, err } = capture(repo.main, { PORT: '9999' })
+  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: '9999', WORKTREE_PORTS_PORT: null })
+  assert.match(err.join('\n'), /PORT is already set to "9999"; keeping it \(this checkout would use "3000"\)/)
+})
+
+test('exec --port with an unknown service exits 1', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'ran.txt')
+  const { io, err } = capture(repo.main)
+  const script = `require('fs').writeFileSync(${JSON.stringify(file)}, 'ran')`
+  assert.equal(await run(['exec', '--port', 'nope', '--', process.execPath, '-e', script], io), 1)
+  assert.match(err.join('\n'), /unknown service "nope" for --port; declared services: api, web/)
+  assert.equal(existsSync(file), false)
+})
+
+test('exec --port under WORKTREE_PORTS=off adds nothing', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'env.json')
+  const { io } = capture(repo.main, { WORKTREE_PORTS: 'off' })
+  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null, WORKTREE_PORTS_PORT: null })
 })
