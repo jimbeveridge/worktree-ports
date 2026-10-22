@@ -27,3 +27,7 @@ Before committing, `npm run lint && npm test` must pass.
     (also pipe the draft commit message through the second grep)
 - Commits use Conventional Commits, with a body that explains why.
 - No runtime dependencies. ESM only. Source imports use `.ts` extensions; the build rewrites them.
+- Path guards compare real paths with `path.basename` or `path.relative`, never by slicing strings, which breaks at
+  the filesystem root.
+- Staleness and cleanup err toward keeping claims: any filesystem error they cannot decide counts as in use. Use
+  `pathExists`, not `existsSync`, which returns false on `EACCES`.
