@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -16,6 +17,7 @@ import {
   CONFIG_FILE_NAME,
   ConfigError,
   ENV_NAME,
+  RESERVED_ENV_NAME,
   assertDefaultsOutsideRange,
   blockSize,
   findConfig,
@@ -91,6 +93,29 @@ const rejects: Array<[string, unknown, RegExp]> = [
   ['an env name with shell code', { ...minimal, env: { 'X=1; echo PWNED #': 'v' } }, /env name "X=1; echo PWNED #"/],
   ['an env name with a dash', { ...minimal, env: { 'MY-VAR': '{root}' } }, /env name "MY-VAR" must match/],
   ['an env name starting with a digit', { ...minimal, env: { '1PORT': '{root}' } }, /env name "1PORT"/],
+  [
+    'NODE_OPTIONS in env',
+    { ...minimal, env: { NODE_OPTIONS: '--require ./x.js' } },
+    /env name "NODE_OPTIONS" is not allowed/,
+  ],
+  ['PATH in env, in any case', { ...minimal, env: { Path: '{root}' } }, /env name "Path" is not allowed/],
+  [
+    'an LD_ variable in env',
+    { ...minimal, env: { LD_PRELOAD: '{root}/x.so' } },
+    /env name "LD_PRELOAD" is not allowed/,
+  ],
+  [
+    'a DYLD_ variable in env',
+    { ...minimal, env: { DYLD_INSERT_LIBRARIES: 'x' } },
+    /"DYLD_INSERT_LIBRARIES" is not allowed/,
+  ],
+  ['a GIT_ variable in env', { ...minimal, env: { GIT_SSH_COMMAND: 'x' } }, /"GIT_SSH_COMMAND" is not allowed/],
+  ['PYTHONPATH in env', { ...minimal, env: { PYTHONPATH: '{root}' } }, /"PYTHONPATH" is not allowed/],
+  [
+    "the tool's own variables in env",
+    { ...minimal, env: { WORKTREE_PORTS: 'off' } },
+    /"WORKTREE_PORTS" is not allowed/,
+  ],
   ['a reserved service name', withServices({ root: { offset: 0, default: 8080 } }), /"root" is reserved/],
   ['no services', { services: {} }, /services must be an object/],
   ['a non-object', [], /expected a JSON object/],
@@ -137,6 +162,35 @@ test('findConfig works without .git and returns undefined when there is no confi
   if (findConfig(tmpdir()) === undefined) assert.equal(findConfig(root), undefined)
   writeFileSync(join(root, CONFIG_FILE_NAME), JSON.stringify(minimal))
   assert.equal(findConfig(root), join(root, CONFIG_FILE_NAME))
+})
+
+test('findConfig stops at the git worktree top-level', (t) => {
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const repo = join(root, 'repo')
+  mkdirSync(join(repo, '.git'), { recursive: true })
+  mkdirSync(join(repo, 'src'))
+  writeFileSync(join(root, CONFIG_FILE_NAME), JSON.stringify(minimal))
+  assert.equal(findConfig(join(repo, 'src')), undefined)
+  // A linked worktree's .git is a file; it is a boundary too.
+  const wt = join(root, 'wt')
+  mkdirSync(wt)
+  writeFileSync(join(wt, '.git'), 'gitdir: /elsewhere\n')
+  assert.equal(findConfig(wt), undefined)
+  writeFileSync(join(repo, CONFIG_FILE_NAME), JSON.stringify(minimal))
+  assert.equal(findConfig(join(repo, 'src')), join(repo, CONFIG_FILE_NAME))
+})
+
+test('findConfig refuses a world-writable config', { skip: process.platform === 'win32' }, (t) => {
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const file = join(root, CONFIG_FILE_NAME)
+  writeFileSync(file, JSON.stringify(minimal))
+  chmodSync(file, 0o666)
+  assert.throws(
+    () => findConfig(root),
+    (err: Error) => err instanceof ConfigError && /writable by other users/.test(err.message),
+  )
 })
 
 test('findConfig resolves symlinks', (t) => {
@@ -191,6 +245,22 @@ test("schema.json's properties match the fields parseConfig accepts", () => {
   // The schema's env name pattern is the parser's.
   assert.equal(schema.properties.env.propertyNames.pattern, ENV_NAME.source)
   parseConfig({ ...example, env: { _A1: '{root}' } })
+  // ...and so is its list of names a config may not set.
+  assert.equal(schema.properties.env.propertyNames.not.pattern, RESERVED_ENV_NAME.source)
+})
+
+test('parseConfig accepts ordinary names near the reserved ones', () => {
+  for (const key of [
+    'PORT',
+    'API_PATH',
+    'NODE_ENV_NAME',
+    'PYTHON_API_URL',
+    'MY_LD_HOST',
+    'WORKTREE_ROOT',
+    'HOMEPAGE_URL',
+  ]) {
+    parseConfig({ ...minimal, env: { [key]: '{root}' } })
+  }
 })
 
 test('example/worktree-ports.json parses when present', { skip: !existsSync(examplePath()) }, () => {

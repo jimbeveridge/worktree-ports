@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0] - Unreleased
 
+### Security
+
+- A config's `env` may not set names that pick what code a program loads or runs (`PATH`, `NODE_OPTIONS`, `LD_*`,
+  `GIT_*` and similar), so an untrusted checkout's config can't turn `exec` of a trusted command into code execution.
+- Config discovery stops at the checkout's top level, and on macOS and Linux refuses a config owned by another user
+  or writable by other users.
+- On Windows, `exec` no longer runs a bare command name from the current directory.
+
 ### Added
 
 - Stable, machine-wide port blocks: every linked git worktree of a project gets its own block of local

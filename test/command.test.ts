@@ -24,9 +24,11 @@ test('planSpawn spawns argv unchanged off Windows', () => {
   })
 })
 
-test('resolveWindowsCommand searches cwd then PATH with PATHEXT, ignoring env-name case', () => {
+test('resolveWindowsCommand searches PATH with PATHEXT, ignoring env-name case', () => {
   assert.equal(resolveWindowsCommand('npm', win()), 'C:\\Program Files\\nodejs\\npm.cmd')
-  assert.equal(resolveWindowsCommand('local', win()), 'C:\\app\\local.cmd')
+  // A bare name is never taken from the current directory, which a checkout controls; name it explicitly.
+  assert.equal(resolveWindowsCommand('local', win()), undefined)
+  assert.equal(resolveWindowsCommand('.\\local', win()), 'C:\\app\\local.cmd')
   assert.equal(resolveWindowsCommand('npm.cmd', win()), 'C:\\Program Files\\nodejs\\npm.cmd')
   assert.equal(resolveWindowsCommand('tools\\build', win()), 'C:\\app\\tools\\build.bat')
   assert.equal(resolveWindowsCommand('nope', win()), undefined)

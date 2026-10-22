@@ -1,5 +1,6 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync, type Stats } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { pathExists } from './git.ts'
 import type { PortRange } from './settings.ts'
 
 /** File name `findConfig` looks for. */
@@ -39,6 +40,14 @@ export class ConfigError extends Error {
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
 /** A POSIX shell variable name; schema.json's `env.propertyNames` uses the same pattern. */
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/**
+ * Names a config's `env` may not set, matched case-insensitively (Windows env names are). Each one picks code a child
+ * loads, an executable it runs, or this tool's own behaviour, so a config from an untrusted checkout could otherwise
+ * turn `exec` of a trusted command into code execution. Best-effort: it covers the common loaders, not every one.
+ */
+export const RESERVED_ENV_NAME =
+  /^(PATH|PATHEXT|COMSPEC|HOME|USERPROFILE|IFS|ENV|BASH_ENV|BASHOPTS|SHELLOPTS|PROMPT_COMMAND|PS4|EDITOR|VISUAL|PAGER|BROWSER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|PYTHON[A-Z]*|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|GIT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|WORKTREE_PORTS[A-Z0-9_]*)$/i
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -129,6 +138,11 @@ export function parseConfig(raw: unknown, source: string = CONFIG_FILE_NAME): Wo
       if (!ENV_NAME.test(key)) {
         throw new ConfigError(`${source}: env name "${key}" must match ${ENV_NAME}`)
       }
+      if (RESERVED_ENV_NAME.test(key)) {
+        throw new ConfigError(
+          `${source}: env name "${key}" is not allowed: it controls what code a program loads or runs, or this tool itself`,
+        )
+      }
       if (typeof value !== 'string') throw new ConfigError(`${source}: env.${key} must be a string`)
       checkTemplate(value, `env.${key}`)
       env[key] = value
@@ -167,15 +181,36 @@ export function loadConfig(path: string): WorktreePortsConfig {
   return parseConfig(raw, path)
 }
 
-/** Nearest `worktree-ports.json` from `cwd` up to the filesystem root. Absolute and symlink-resolved. */
+/**
+ * Nearest `worktree-ports.json` from `cwd` upward. Absolute and symlink-resolved. The search stops at the first
+ * directory holding `.git` (a checkout's top level), so a config above a repository never applies to it; outside git
+ * it goes on to the filesystem root. On POSIX a config owned by another user, or writable by other users, is an
+ * error rather than a match, as git refuses a repository of dubious ownership.
+ */
 export function findConfig(cwd: string = process.cwd()): string | undefined {
   let dir = realpathSync(resolve(cwd))
   for (;;) {
     const candidate = join(dir, CONFIG_FILE_NAME)
-    if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return realpathSync(candidate)
+    const stat = statSync(candidate, { throwIfNoEntry: false })
+    if (stat?.isFile()) {
+      assertTrusted(candidate, stat)
+      return realpathSync(candidate)
+    }
+    // pathExists counts an unreadable .git as present, so an undecidable boundary stops the search.
+    if (pathExists(join(dir, '.git'))) return undefined
     const parent = dirname(dir)
     if (parent === dir) return undefined
     dir = parent
+  }
+}
+
+function assertTrusted(path: string, stat: Stats): void {
+  if (process.platform === 'win32' || process.getuid === undefined) return
+  if (stat.uid !== process.getuid()) {
+    throw new ConfigError(`${path} is owned by another user; refusing to use it`)
+  }
+  if ((stat.mode & 0o002) !== 0) {
+    throw new ConfigError(`${path} is writable by other users; refusing to use it (chmod o-w fixes it)`)
   }
 }
 

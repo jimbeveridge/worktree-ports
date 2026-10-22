@@ -179,8 +179,10 @@ The full claim protocol (locking, the backstop scan, staleness rules) is in
 
 ## Configuration reference
 
-The tool looks for `worktree-ports.json` from the current directory up to the filesystem root, and the nearest one
-wins. `--config <path>` overrides the search. Git is not needed to find the config. In a monorepo the usual layout is
+The tool looks for `worktree-ports.json` from the current directory upward, and the nearest one wins. The search stops
+at the checkout's top level (the first directory holding `.git`), so a config above a repository never applies to it;
+outside git it goes on to the filesystem root. On macOS and Linux, a config owned by another user or writable by other
+users is refused. `--config <path>` overrides the search. Git is not needed to find the config. In a monorepo the usual layout is
 one file at the root; a sub-project may carry its own, and each config file in a worktree gets its own claim.
 
 | Field                               | Rule                                                                                                                                                                                                                                     |
@@ -188,7 +190,7 @@ one file at the root; a sub-project may carry its own, and each config file in a
 | `services.<name>.offset`            | Required integer >= 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                         |
 | `services.<name>.default`           | Required port 1-65535, used by every context that does not claim. It must lie outside the claim range, so a claimed block can never hand out another project's default. A clash is an error that names both.                             |
 | `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                  |
-| `env`                               | Optional map of variable name to template.                                                                                                                                                                                               |
+| `env`                               | Optional map of variable name to template. Names that pick what code a program loads or runs are rejected: `PATH`, `HOME`, `NODE_OPTIONS`, `PYTHON*`, `LD_*`, `DYLD_*`, `GIT_*`, `NPM_CONFIG_*`, `WORKTREE_PORTS*` and similar.          |
 | `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See [`--verify`](#guarding-against-the-wrong-backend---verify). |
 | `$schema`                           | Optional and ignored. The package ships a JSON Schema for editor completion.                                                                                                                                                             |
 
@@ -544,7 +546,8 @@ versioning from 1.0; 0.x releases may break it.
   atomic rename work there. Signal handling differs: there is no `SIGTERM` to forward, and Ctrl-C reaches the whole
   console group anyway, so the child exits and the wrapper reports its code. The signal tests are skipped on Windows.
   `exec` runs a `.cmd` or `.bat` command (`npm`, `npx`, anything in `node_modules/.bin`) through `cmd.exe`, with its
-  arguments escaped, since Node can't start those files directly.
+  arguments escaped, since Node can't start those files directly. Unlike `cmd.exe`, it never runs a bare command name
+  from the current directory, so a checkout can't plant its own `npm.cmd`; write `.\tool` to run one from there.
 - No runtime dependencies.
 
 ## FAQ and limitations

@@ -7,12 +7,19 @@
   "additionalProperties": false,
   "required": ["services"],
   "properties": {
-    "$schema": { "type": "string" },
+    "$schema": {
+      "type": "string"
+    },
     "services": {
       "description": "Service name to port spec. The port is the claimed block base plus the offset.",
       "type": "object",
       "minProperties": 1,
-      "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_-]*$", "not": { "enum": ["root", "name", "home"] } },
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+        "not": {
+          "enum": ["root", "name", "home"]
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -38,10 +45,17 @@
       "default": "default"
     },
     "env": {
-      "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}.",
+      "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}. Names that control what code a program loads or runs (PATH, NODE_OPTIONS, LD_*, ...) are rejected.",
       "type": "object",
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-      "additionalProperties": { "type": "string" }
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "pattern": "^(PATH|PATHEXT|COMSPEC|HOME|USERPROFILE|IFS|ENV|BASH_ENV|BASHOPTS|SHELLOPTS|PROMPT_COMMAND|PS4|EDITOR|VISUAL|PAGER|BROWSER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|PYTHON[A-Z]*|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|GIT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|WORKTREE_PORTS[A-Z0-9_]*)$"
+        }
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "verify": {
       "description": "How `exec --verify` asks a running service which checkout it belongs to.",
@@ -49,9 +63,18 @@
       "additionalProperties": false,
       "required": ["url", "field", "expect"],
       "properties": {
-        "url": { "type": "string", "minLength": 1 },
-        "field": { "type": "string", "minLength": 1 },
-        "expect": { "type": "string", "minLength": 1 }
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expect": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

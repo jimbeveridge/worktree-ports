@@ -38,9 +38,10 @@ function envValue(env: Record<string, string | undefined>, name: string): string
 }
 
 /**
- * Find the file Windows would run for `command`: the current directory first, then each `PATH` entry, trying the
- * name as given (when its extension is in `PATHEXT`) and then with each `PATHEXT` extension. A command with a
- * directory part is looked up only there.
+ * Find the file to run for `command`: each `PATH` entry, trying the name as given (when its extension is in
+ * `PATHEXT`) and then with each `PATHEXT` extension. A command with a directory part is looked up only there.
+ * Unlike cmd.exe, a bare name is never taken from the current directory: a checkout controls that directory, so a
+ * planted `npm.cmd` would otherwise run in place of the real one. Write `.\tool` to run one from there.
  */
 export function resolveWindowsCommand(command: string, opts: PlanOptions): string | undefined {
   const isFile = opts.isFile ?? defaultIsFile
@@ -49,7 +50,7 @@ export function resolveWindowsCommand(command: string, opts: PlanOptions): strin
     .filter((e) => e !== '')
     .map((e) => e.toLowerCase())
   const hasDir = /[\\/]/.test(command) || isAbsolute(command)
-  const dirs = hasDir ? [''] : [opts.cwd, ...(envValue(opts.env, 'PATH') ?? '').split(';').filter((d) => d !== '')]
+  const dirs = hasDir ? [''] : (envValue(opts.env, 'PATH') ?? '').split(';').filter((d) => d !== '')
   const names = exts.includes(extname(command).toLowerCase()) ? [command] : []
   names.push(...exts.map((e) => command + e))
   for (const dir of dirs) {

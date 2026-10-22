@@ -118,10 +118,14 @@ which `exec` always sets to `1` (§8).
 
 ### 6a. Discovery
 
-Search from the current directory up to the filesystem root for
-`worktree-ports.json`; the nearest one wins. `--config <path>` overrides the
-search. Git is not needed to find the config, which is what makes the no-git
-context work. In a monorepo the usual layout is one file at the root; a
+Search from the current directory upward for `worktree-ports.json`; the
+nearest one wins. The search stops at the first directory holding `.git` (a
+checkout's top level, where `.git` is a directory or, in a linked worktree, a
+file), so a config above a repository never applies to it. Outside git it goes
+on to the filesystem root. On POSIX, a config owned by another user or writable
+by other users is an error, as git refuses a repository of dubious ownership.
+`--config <path>` overrides the search. Git is not needed to find the config,
+which is what makes the no-git context work. In a monorepo the usual layout is one file at the root; a
 sub-project may carry its own. Each config file in a worktree gets its own
 claim (§7b), so two sub-projects never share a block.
 
@@ -153,7 +157,7 @@ claim (§7b), so two sub-projects never share a block.
 | `services.<name>.offset`            | Required integer ≥ 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                                                                |
 | `services.<name>.default`           | **Required** port 1–65535. Used by every context that doesn't claim (§5). Must fall outside the user's claim range, so a claimed block can never hand out another project's default. That's checked at load time against the effective range; a clash is an error naming both. |
 | `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                                                        |
-| `env`                               | Optional map of variable name → template (§5 tokens).                                                                                                                                                                                                                          |
+| `env`                               | Optional map of variable name → template (§5 tokens). Names that pick what code a program loads or runs, or that control this tool, are rejected (decision 6).                                                                                                                 |
 | `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See §8.                                                                                               |
 | `$schema`                           | Optional; ignored. A JSON Schema ships in the package for editor completion.                                                                                                                                                                                                   |
 
@@ -513,7 +517,8 @@ worktree-ports: running: next dev
   handling differs: there's no `SIGTERM` to forward, and Ctrl-C reaches the
   whole console group anyway, so the child exits and the wrapper reports its
   code. Signal tests are skipped on Windows; the README says so. `exec` finds
-  the command through `PATH` and `PATHEXT`; a `.cmd`/`.bat` (`npm`, `npx`,
+  the command through `PATH` and `PATHEXT`, never the current directory for a
+  bare name (decision 8); a `.cmd`/`.bat` (`npm`, `npx`,
   `node_modules/.bin` shims) runs through `cmd.exe /d /s /c` with its
   arguments escaped for cmd, since Node won't spawn those without a shell.
 
@@ -799,3 +804,21 @@ All examples use generic project names, paths and variables.
    renders, such as `WORKTREE_ROOT`, fails when a person sets it by hand, as
    the README's refusal test does: the launcher skips `exec` and falls back to
    the default ports. A usability test hit exactly that.
+6. **A config may not set names that control code loading (§6b).** `exec`
+   hands `env` to the child, so a config from an untrusted checkout could set
+   `NODE_OPTIONS`, `LD_PRELOAD`, `PATH` or the like and turn `exec` of a
+   trusted command into code execution. The parser rejects a fixed list,
+   case-insensitively: `PATH`, `PATHEXT`, `COMSPEC`, `HOME`, `USERPROFILE`,
+   shell start-up variables, executables (`EDITOR`, `PAGER`, `BROWSER`, the
+   askpass helpers, `LESSOPEN`), language loaders (`NODE_OPTIONS`, `NODE_PATH`,
+   Perl, Ruby, Java, `PYTHON*`), and the `LD_`, `DYLD_`, `GIT_`, `NPM_CONFIG_`
+   and `WORKTREE_PORTS` prefixes. A denylist, not an allowlist: configs
+   legitimately name origins, callback URLs and addresses freely, and the
+   checkout's own scripts can run code anyway. It closes the cases where the
+   command is trusted and only the config is not.
+7. **Config discovery stops at the checkout and checks ownership (§6a).** An
+   unbounded upward search let a config in a parent directory, possibly
+   another user's, apply to every repository below it.
+8. **`exec` never runs a bare command from the current directory on Windows
+   (§9).** cmd.exe searches it first, so a checkout could plant `npm.cmd`.
+   `.\tool` still runs one from there.
