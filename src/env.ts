@@ -1,7 +1,9 @@
 import { ConfigError } from './config.ts'
 
 export interface TemplateContext {
+  /** `{root}`: the checkout's top-level dir; outside git, the dir holding the config file. */
   root: string
+  /** `{name}`: `main` for the main checkout and outside git; git's admin-dir name for a linked worktree. */
   name: string
   home: string
   ports: Record<string, number>

@@ -60,8 +60,14 @@ export interface StatusOptions {
   verify?: VerifyOptions
 }
 
-/** Report, for every resolved service port, whether it is listening and (for the verify target) whose it is. */
-export async function serviceStatus(resolved: ResolvedPorts, opts: StatusOptions = {}): Promise<ServiceStatus[]> {
+/**
+ * Report, for every resolved service port, whether it is listening and (for the verify target) whose it is.
+ * Reads only `ports` and `verify` (whose `expect` is already rendered against `root`).
+ */
+export async function serviceStatus(
+  resolved: Pick<ResolvedPorts, 'ports' | 'verify'>,
+  opts: StatusOptions = {},
+): Promise<ServiceStatus[]> {
   const spec = resolved.verify
   const verifyPort = spec ? portOf(spec.url) : undefined
   return Promise.all(

@@ -130,13 +130,13 @@ test('exec returns the child exit code', { skip: 'rewired in Task 5/6' }, async 
   assert.equal(await run(['exec', '--config', config, '--', process.execPath, '-e', 'process.exit(7)'], io), 7)
 })
 
-test('exec outside a git worktree warns and still runs the command', async () => {
+test('exec with no config found warns and still runs the command unchanged', async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worktree-ports-cli-nogit-')))
   const file = join(dir, 'env.json')
   const { io, err } = capture(dir)
   assert.equal(await run(['exec', ...dumpEnvArgs(file, 'PORT')], io), 0)
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null })
-  assert.match(err.join('\n'), /not inside a git worktree/)
+  assert.match(err.join('\n'), /no worktree-ports\.json found.*running the command unchanged/)
 })
 
 async function healthServer(root: string): Promise<{ port: number; server: Server }> {

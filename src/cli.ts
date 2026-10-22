@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:os'
 import { mergeEnv } from './env.ts'
-import { NotAGitWorktreeError } from './git.ts'
-import { resolvePorts, type ResolvedPorts } from './resolve.ts'
+import { NoConfigError, resolvePorts, type ResolvedPorts } from './resolve.ts'
 import { serviceStatus } from './status.ts'
 import { verifyIdentity } from './verify.ts'
 
@@ -119,10 +118,14 @@ export async function run(argv: string[], io: CliIo = defaultIo()): Promise<numb
 
   let resolved: ResolvedPorts
   try {
-    resolved = resolvePorts({ cwd: io.cwd, ...(args.config === undefined ? {} : { configPath: args.config }) })
+    resolved = await resolvePorts({
+      cwd: io.cwd,
+      env: io.env,
+      ...(args.config === undefined ? {} : { configPath: args.config }),
+    })
   } catch (err) {
-    if (err instanceof NotAGitWorktreeError && args.command === 'exec') {
-      io.stderr(`${PREFIX} not inside a git worktree; running without worktree ports`)
+    if (err instanceof NoConfigError && args.command === 'exec') {
+      io.stderr(`${PREFIX} ${err.message}; running the command unchanged`)
       return spawnChild(args.rest, io.env, io)
     }
     io.stderr(`${PREFIX} ${(err as Error).message}`)
@@ -131,20 +134,19 @@ export async function run(argv: string[], io: CliIo = defaultIo()): Promise<numb
 
   if (args.command === 'show') {
     const summary = {
-      name: resolved.location.name,
-      root: resolved.location.root,
-      isMain: resolved.location.isMain,
-      reservation: resolved.reservation,
+      name: resolved.name,
+      root: resolved.root,
+      context: resolved.context.kind,
+      ...(resolved.claim ? { base: resolved.claim.base } : {}),
       ports: resolved.ports,
       env: resolved.env,
     }
     if (args.json) {
       io.stdout(JSON.stringify(summary, null, 2))
     } else {
-      const r = resolved.reservation
-      io.stdout(`worktree  ${summary.name}${summary.isMain ? ' (main checkout)' : ''}`)
+      io.stdout(`worktree  ${summary.name} (${resolved.context.reason})`)
       io.stdout(`root      ${summary.root}`)
-      io.stdout(`block     ${r.source === 'main' ? 'fixed main-checkout ports' : `${r.base} (${r.source})`}`)
+      io.stdout(`block     ${resolved.claim ? String(resolved.claim.base) : 'service defaults'}`)
       for (const [service, port] of Object.entries(resolved.ports)) io.stdout(`${service.padEnd(9)} ${port}`)
     }
     return 0
@@ -156,12 +158,12 @@ export async function run(argv: string[], io: CliIo = defaultIo()): Promise<numb
   }
 
   if (args.command === 'status') {
-    const { name, root, isMain } = resolved.location
+    const { name, root } = resolved
     const services = await serviceStatus(resolved)
     if (args.json) {
-      io.stdout(JSON.stringify({ name, root, isMain, services }, null, 2))
+      io.stdout(JSON.stringify({ name, root, context: resolved.context.kind, services }, null, 2))
     } else {
-      io.stdout(`worktree  ${name}${isMain ? ' (main checkout)' : ''}`)
+      io.stdout(`worktree  ${name} (${resolved.context.reason})`)
       for (const s of services) {
         const state = s.listening ? 'listening' : 'free'
         let owner = ''
@@ -207,6 +209,6 @@ export async function run(argv: string[], io: CliIo = defaultIo()): Promise<numb
     }
   }
 
-  io.stderr(`${PREFIX} ${resolved.location.name}: ${describePorts(resolved)}`)
+  io.stderr(`${PREFIX} ${resolved.name}: ${describePorts(resolved)}`)
   return spawnChild(args.rest, env, io)
 }

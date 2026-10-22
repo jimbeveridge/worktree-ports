@@ -16,8 +16,23 @@ export { DEFAULT_RANGE, SettingsError, loadSettings, settingsPath, stateDir } fr
 export type { PortRange, Settings } from './settings.ts'
 export { mergeEnv, renderTemplate } from './env.ts'
 export type { MergedEnv, TemplateContext } from './env.ts'
-export { resolvePorts } from './resolve.ts'
-export type { Reservation, ResolveOptions, ResolvedPorts } from './resolve.ts'
+export { ModeError, detectContext, isCI, readMode } from './context.ts'
+export type { Context, ContextKind, Mode } from './context.ts'
+export { NoConfigError, resolvePorts } from './resolve.ts'
+export type { ResolveOptions, ResolvedPorts } from './resolve.ts'
+export { LockTimeoutError, RegistryFullError, claimBlock, openRegistry, parseDuration } from './registry/index.ts'
+export type {
+  Claim,
+  ClaimHooks,
+  ClaimOwner,
+  ClaimResult,
+  ListedClaim,
+  LockOptions,
+  PruneOptions,
+  Registry,
+  Removal,
+  StaleReason,
+} from './registry/index.ts'
 export { verifyIdentity } from './verify.ts'
 export type { VerifyOptions, VerifyResult } from './verify.ts'
 export { UsageError, parseArgs, run } from './cli.ts'
