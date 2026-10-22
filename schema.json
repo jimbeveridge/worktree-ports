@@ -40,6 +40,7 @@
     "env": {
       "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}.",
       "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
       "additionalProperties": { "type": "string" }
     },
     "verify": {

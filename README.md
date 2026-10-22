@@ -412,6 +412,8 @@ versioning from 1.0; 0.x releases may break it.
 - Windows is supported for `show`, `env`, `exec`, `status`, `list`, `release` and `prune`, and tested in CI. Locking and
   atomic rename work there. Signal handling differs: there is no `SIGTERM` to forward, and Ctrl-C reaches the whole
   console group anyway, so the child exits and the wrapper reports its code. The signal tests are skipped on Windows.
+  `exec` runs a `.cmd` or `.bat` command (`npm`, `npx`, anything in `node_modules/.bin`) through `cmd.exe`, with its
+  arguments escaped, since Node can't start those files directly.
 - No runtime dependencies.
 
 ## FAQ and limitations

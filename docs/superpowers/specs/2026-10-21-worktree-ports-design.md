@@ -394,7 +394,10 @@ Exit codes:
   tested in CI. `mkdir` locking and atomic rename work there. `exec`'s signal
   handling differs: there's no `SIGTERM` to forward, and Ctrl-C reaches the
   whole console group anyway, so the child exits and the wrapper reports its
-  code. Signal tests are skipped on Windows; the README says so.
+  code. Signal tests are skipped on Windows; the README says so. `exec` finds
+  the command through `PATH` and `PATHEXT`; a `.cmd`/`.bat` (`npm`, `npx`,
+  `node_modules/.bin` shims) runs through `cmd.exe /d /s /c` with its
+  arguments escaped for cmd, since Node won't spawn those without a shell.
 
 ## 10. Wiring a server
 

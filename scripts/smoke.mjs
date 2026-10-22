@@ -86,6 +86,19 @@ try {
       ],
       dir,
     )
+    // exec must start a .cmd shim too (npm is npm.cmd on Windows), as the README's `exec -- npm run dev` needs.
+    const npmVersion = run(
+      process.execPath,
+      [
+        join(dir, 'node_modules', 'worktree-ports', 'dist', 'bin', 'worktree-ports.js'),
+        'exec',
+        '--',
+        'npm',
+        '--version',
+      ],
+      dir,
+    )
+    check(/^\d+\.\d+\.\d+/.test(npmVersion.trim()), `exec -- npm --version printed ${JSON.stringify(npmVersion)}`)
   }
 
   const claims = JSON.parse(run('npx', ['worktree-ports', 'list', '--json'], linked))

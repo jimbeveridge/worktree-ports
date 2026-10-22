@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import {
   CONFIG_FILE_NAME,
   ConfigError,
+  ENV_NAME,
   assertDefaultsOutsideRange,
   blockSize,
   findConfig,
@@ -87,6 +88,9 @@ const rejects: Array<[string, unknown, RegExp]> = [
   ['an unknown env token', { ...minimal, env: { X: '{nope}' } }, /env\.X uses unknown token \{nope\}/],
   ['an unknown verify token', { ...minimal, verify: { url: '{nope}', field: 'f', expect: '{root}' } }, /verify\.url/],
   ['a bad service name', withServices({ '9api': { offset: 0, default: 8080 } }), /service name "9api"/],
+  ['an env name with shell code', { ...minimal, env: { 'X=1; echo PWNED #': 'v' } }, /env name "X=1; echo PWNED #"/],
+  ['an env name with a dash', { ...minimal, env: { 'MY-VAR': '{root}' } }, /env name "MY-VAR" must match/],
+  ['an env name starting with a digit', { ...minimal, env: { '1PORT': '{root}' } }, /env name "1PORT"/],
   ['a reserved service name', withServices({ root: { offset: 0, default: 8080 } }), /"root" is reserved/],
   ['no services', { services: {} }, /services must be an object/],
   ['a non-object', [], /expected a JSON object/],
@@ -184,6 +188,9 @@ test("schema.json's properties match the fields parseConfig accepts", () => {
   // Everything the schema lists is accepted, and one extra of each kind is rejected.
   parseConfig(example)
   assert.throws(() => parseConfig({ ...example, extra: 1 }), ConfigError)
+  // The schema's env name pattern is the parser's.
+  assert.equal(schema.properties.env.propertyNames.pattern, ENV_NAME.source)
+  parseConfig({ ...example, env: { _A1: '{root}' } })
 })
 
 test('example/worktree-ports.json parses when present', { skip: !existsSync(examplePath()) }, () => {

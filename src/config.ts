@@ -37,6 +37,8 @@ export class ConfigError extends Error {
 }
 
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
+/** A POSIX shell variable name; schema.json's `env.propertyNames` uses the same pattern. */
+export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -123,6 +125,10 @@ export function parseConfig(raw: unknown, source: string = CONFIG_FILE_NAME): Wo
   if (raw.env !== undefined) {
     if (!isRecord(raw.env)) throw new ConfigError(`${source}: env must be an object`)
     for (const [key, value] of Object.entries(raw.env)) {
+      // `env` prints `export KEY=...` for `eval`, so a key must be a plain shell variable name.
+      if (!ENV_NAME.test(key)) {
+        throw new ConfigError(`${source}: env name "${key}" must match ${ENV_NAME}`)
+      }
       if (typeof value !== 'string') throw new ConfigError(`${source}: env.${key} must be a string`)
       checkTemplate(value, `env.${key}`)
       env[key] = value

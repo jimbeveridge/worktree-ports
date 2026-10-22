@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { constants } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { planSpawn } from './command.ts'
 import { readMode } from './context.ts'
 import { mergeEnv } from './env.ts'
 import { openRegistry, parseDuration, type ListedClaim, type LockOptions, type Registry } from './registry/index.ts'
@@ -44,7 +45,7 @@ const USAGE = `usage:
   worktree-ports list    [--json]
   worktree-ports release [--config <path>]
   worktree-ports prune   [--unused-for <duration>] [--dry-run]
-  worktree-ports --version | --help`
+  worktree-ports --version | --help | -h`
 
 const PREFIX = 'worktree-ports:'
 const OFF_MESSAGE = 'worktree-ports is off (WORKTREE_PORTS=off)'
@@ -112,9 +113,16 @@ function shellQuote(value: string): string {
 }
 
 function spawnChild(argv: string[], env: Record<string, string | undefined>, io: CliIo): Promise<number> {
-  const [cmd, ...args] = argv
+  const cmd = argv[0]!
+  // On Windows a `.cmd`/`.bat` (npm, npx, node_modules/.bin) is run through cmd.exe; see planSpawn.
+  const plan = planSpawn(argv, { platform: process.platform, env, cwd: io.cwd })
   return new Promise((resolve) => {
-    const child = spawn(cmd!, args, { stdio: 'inherit', env, cwd: io.cwd })
+    const child = spawn(plan.file, plan.args, {
+      stdio: 'inherit',
+      env,
+      cwd: io.cwd,
+      windowsVerbatimArguments: plan.windowsVerbatimArguments,
+    })
     // Forward SIGTERM only: a Ctrl-C SIGINT already reaches the whole foreground process group (this wrapper
     // AND the child) directly from the terminal, so forwarding it too would deliver it to the child twice.
     // We still need a SIGINT listener here, though: without one, Node's default SIGINT handling would
