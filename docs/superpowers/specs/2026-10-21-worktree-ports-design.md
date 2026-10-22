@@ -420,7 +420,7 @@ The README carries the same in Go and Python (§13).
 - `findConfig(cwd?)`, `parseConfig(raw, source?)`, `loadConfig(path)`.
 - `locateWorktree(cwd?)`: git location of the checkout containing `cwd`.
 - `claimBlock(loc, size, registry, hooks?)`: claim or look up a block directly.
-- `openRegistry(opts?) → { list(), release(gitDir, config), prune(opts) }`.
+- `openRegistry(opts?) → { list(), release({ gitDir, config }), prune(opts) }`.
 - `renderTemplate(template, ctx)`, `mergeEnv(base, values)`.
 - `verifyIdentity(spec, opts?)`, `serviceStatus(resolved, opts?)`,
   `isListening(port, timeoutMs?)`, `probe(port, host, timeoutMs?)`.

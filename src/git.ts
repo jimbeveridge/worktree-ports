@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
-import { basename } from 'node:path'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 
 export interface WorktreeLocation {
   /** Top-level directory of this worktree. */
@@ -13,6 +13,8 @@ export interface WorktreeLocation {
   /** `main` for the main checkout; git's admin-dir name for a linked worktree. */
   name: string
 }
+
+export type LinkedState = 'present' | 'missing' | 'locked' | 'not-linked'
 
 export class NotAGitWorktreeError extends Error {
   override name = 'NotAGitWorktreeError'
@@ -53,4 +55,39 @@ export function locateWorktree(cwd: string = process.cwd()): WorktreeLocation {
   }
   const isMain = gitDir === commonDir
   return { root, gitDir, commonDir, isMain, name: isMain ? 'main' : basename(gitDir) }
+}
+
+/**
+ * How git sees the linked worktree whose private git dir (admin dir) is `gitDir`:
+ * - `not-linked`: `gitDir` is not a linked worktree's admin dir (a main checkout's `.git`, or gone);
+ * - `locked`: `git worktree lock` was run on it, so it must be treated as present whatever the disk says;
+ * - `missing`: the admin dir is there but the worktree folder it points at has gone;
+ * - `present`: the worktree folder exists.
+ *
+ * It makes the same check `git worktree prune` does: the admin dir's `gitdir` file holds the path of the
+ * worktree's `.git` file. It only reads the admin dir and never changes it.
+ */
+export function linkedWorktreeState(gitDir: string): LinkedState {
+  let pointer: string
+  try {
+    pointer = readFileSync(join(gitDir, 'gitdir'), 'utf8').trim()
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return 'not-linked'
+    throw err
+  }
+  if (pathExists(join(gitDir, 'locked'))) return 'locked'
+  // git may write the pointer relative to the admin dir (`worktree.useRelativePaths`).
+  return pathExists(resolve(gitDir, pointer)) ? 'present' : 'missing'
+}
+
+/** True unless the path is definitely absent. An error other than "not found" (e.g. EACCES) counts as present. */
+export function pathExists(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    return code !== 'ENOENT' && code !== 'ENOTDIR'
+  }
 }

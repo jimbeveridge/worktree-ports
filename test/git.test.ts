@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { NotAGitWorktreeError, locateWorktree } from '../src/git.ts'
-import { makeRepo } from './helpers/repo.ts'
+import { NotAGitWorktreeError, linkedWorktreeState, locateWorktree } from '../src/git.ts'
+import { git, makeRepo } from './helpers/repo.ts'
 
 test('main checkout: gitDir is the common dir and the name is "main"', (t) => {
   const repo = makeRepo()
@@ -68,4 +68,50 @@ test('ignores an inherited GIT_DIR pointing at a different repository', (t) => {
     isMain: true,
     name: 'main',
   })
+})
+
+test('a symlinked cwd resolves to the real paths', (t) => {
+  const repo = makeRepo()
+  t.after(() => repo.cleanup())
+  const wt = repo.addWorktree('feature')
+  const link = join(repo.dir, 'link')
+  symlinkSync(wt, link, 'junction')
+  const loc = locateWorktree(link)
+  assert.equal(loc.root, wt)
+  assert.equal(loc.gitDir, join(repo.main, '.git', 'worktrees', 'feature'))
+  assert.equal(loc.name, 'feature')
+})
+
+test('linkedWorktreeState: the common dir is not a linked worktree', (t) => {
+  const repo = makeRepo()
+  t.after(() => repo.cleanup())
+  assert.equal(linkedWorktreeState(join(repo.main, '.git')), 'not-linked')
+})
+
+test('linkedWorktreeState: a live linked worktree is present', (t) => {
+  const repo = makeRepo()
+  t.after(() => repo.cleanup())
+  const wt = repo.addWorktree('feature')
+  assert.equal(linkedWorktreeState(locateWorktree(wt).gitDir), 'present')
+})
+
+test('linkedWorktreeState: a worktree folder deleted without git is missing', (t) => {
+  const repo = makeRepo()
+  t.after(() => repo.cleanup())
+  const wt = repo.addWorktree('feature')
+  const { gitDir } = locateWorktree(wt)
+  rmSync(wt, { recursive: true, force: true })
+  assert.ok(existsSync(gitDir), 'the admin dir stays until git worktree prune')
+  assert.equal(linkedWorktreeState(gitDir), 'missing')
+})
+
+test('linkedWorktreeState: a locked worktree is locked even when its folder is gone', (t) => {
+  const repo = makeRepo()
+  t.after(() => repo.cleanup())
+  const wt = repo.addWorktree('feature')
+  const { gitDir } = locateWorktree(wt)
+  git(repo.main, 'worktree', 'lock', wt)
+  assert.equal(linkedWorktreeState(gitDir), 'locked')
+  rmSync(wt, { recursive: true, force: true })
+  assert.equal(linkedWorktreeState(gitDir), 'locked')
 })
