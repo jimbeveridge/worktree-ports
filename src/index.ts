@@ -18,7 +18,7 @@ export { mergeEnv, renderTemplate } from './env.ts'
 export type { MergedEnv, TemplateContext } from './env.ts'
 export { ModeError, detectContext, isCI, readMode } from './context.ts'
 export type { Context, ContextKind, Mode } from './context.ts'
-export { NoConfigError, resolvePorts } from './resolve.ts'
+export { NoConfigError, checkoutOwner, resolvePorts } from './resolve.ts'
 export type { ResolveOptions, ResolvedPorts } from './resolve.ts'
 export { LockTimeoutError, RegistryFullError, claimBlock, openRegistry, parseDuration } from './registry/index.ts'
 export type {

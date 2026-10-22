@@ -12,7 +12,15 @@ import {
 } from './config.ts'
 import { detectContext, readMode, type Context } from './context.ts'
 import { renderTemplate, type TemplateContext } from './env.ts'
-import { claimBlock, openRegistry, type Claim, type ClaimHooks, type Registry } from './registry/index.ts'
+import { locateWorktree } from './git.ts'
+import {
+  claimBlock,
+  openRegistry,
+  type Claim,
+  type ClaimHooks,
+  type ClaimOwner,
+  type Registry,
+} from './registry/index.ts'
 import { loadSettings } from './settings.ts'
 
 /** No `worktree-ports.json` in the directory or any parent, and no `configPath` given. */
@@ -71,6 +79,26 @@ function realpathOr(path: string): string {
   }
 }
 
+/** The symlink-resolved cwd and config path: `configPath` resolved against cwd, else discovery upward. */
+function locateConfig(givenCwd: string, configPath: string | undefined): { cwd: string; configPath: string } {
+  const cwd = realpathSync(givenCwd)
+  if (configPath !== undefined) return { cwd, configPath: realpathOr(resolve(cwd, configPath)) }
+  const found = findConfig(cwd)
+  if (found === undefined) throw new NoConfigError(`no ${CONFIG_FILE_NAME} found in ${cwd} or any parent directory`)
+  return { cwd, configPath: found }
+}
+
+/**
+ * The claim owner for the checkout at `cwd` and its config, the same pair `resolvePorts` claims under, whatever
+ * the context. Neither loads the config nor touches the registry. Throws `NoConfigError` and
+ * `NotAGitWorktreeError`.
+ */
+export function checkoutOwner(opts: Pick<ResolveOptions, 'cwd' | 'configPath'> = {}): ClaimOwner {
+  const { cwd, configPath } = locateConfig(resolve(opts.cwd ?? process.cwd()), opts.configPath)
+  const location = locateWorktree(cwd)
+  return { gitDir: location.gitDir, root: location.root, config: relOrAbs(location.root, configPath) }
+}
+
 /** Find the config, work out the context, claim or look up the block, and render `env` and `verify` (spec §11). */
 export async function resolvePorts(opts: ResolveOptions = {}): Promise<ResolvedPorts> {
   const env = opts.env ?? process.env
@@ -87,17 +115,7 @@ export async function resolvePorts(opts: ResolveOptions = {}): Promise<ResolvedP
     }
   }
 
-  const cwd = realpathSync(givenCwd)
-  let configPath: string
-  if (opts.configPath !== undefined) {
-    configPath = realpathOr(resolve(cwd, opts.configPath))
-  } else {
-    const found = findConfig(cwd)
-    if (found === undefined) {
-      throw new NoConfigError(`no ${CONFIG_FILE_NAME} found in ${cwd} or any parent directory`)
-    }
-    configPath = found
-  }
+  const { cwd, configPath } = locateConfig(givenCwd, opts.configPath)
   const config = loadConfig(configPath)
 
   const range = opts.registry?.range ?? loadSettings().range
