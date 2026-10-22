@@ -2,8 +2,7 @@
 
 Gives every git worktree of a project its own stable block of local ports.
 
-Design spec: `docs/superpowers/specs/2026-10-21-worktree-ports-design.md`  
-Implementation plan: `docs/superpowers/plans/2026-10-21-worktree-ports.md`
+Design spec: `docs/superpowers/specs/2026-10-21-worktree-ports-design.md`
 
 ## Commands
 
