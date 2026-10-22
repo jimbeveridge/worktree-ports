@@ -95,29 +95,35 @@ starting point.
       the config (`./frontend/node_modules/worktree-ports/schema.json`), or keep the unpkg URL.
 - [ ] **Find every port.** Search the repository for the port numbers your servers use (`8080`, `3000`, ...) in source,
       scripts, `.env` files, proxy and CORS settings, and test configs (Playwright `webServer` and `baseURL`, for
-      example). Each server that listens becomes a service; everything else is a value built from one. Host ports in a
-      Docker Compose file (`"8080:8080"`) collide too: make the host side a variable (`"${API_PORT:-8080}:8080"`) and
-      run `docker compose` under `exec`. Leave container-internal ports, deployment config, docs and saved request
-      collections on the defaults.
+      example). Each server that listens becomes a service; everything else is a value built from one. Leave
+      container-internal ports, deployment config, docs and saved request collections on the defaults.
 - [ ] **Declare the services.** Add `worktree-ports.json` at the repository root with one entry per listening server.
       Set each `default` to the port it uses today, so the main checkout and CI keep running on it. Give each a distinct
       `offset`. See the [configuration reference](#configuration-reference).
-- [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and test
-      base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout failure
-      described in [the problem](#the-problem).
-- [ ] **Give each server its own port with `--port`.** Every process run under `exec` receives the whole `env` map, so
-      a generic name such as `PORT` in `env` would reach every server, and a backend that reads it would bind to the
-      frontend's port. Start each server with `exec --port <service>` instead: it sets `PORT` for that process only.
-      Keep `env` for values every process needs (origins, proxy targets, `WORKTREE_ROOT`). A server that reads a
-      different variable for its own port can still get it from `env`, as long as no other server reads that name.
+- [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and
+      test base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout
+      failure described in [the problem](#the-problem).
+- [ ] **Choose how each server gets its own port.** Every process run under `exec` receives the whole `env` map, so
+      never put a generic name such as `PORT` in `env`: a backend that reads it would bind to the frontend's port. For a
+      server that reads `PORT` (Next.js and many other dev servers), start it with `exec --port <service>`, which sets
+      `PORT` for that process only. `PORT` carries no host, though, and many servers listen on all interfaces when given
+      only a port, which exposes them to your network and can trigger a firewall prompt. For a server that should stay
+      on loopback, or that has more than one listener (HTTP and gRPC, say), render a full address under a name only it
+      reads (`"API_ADDR": "127.0.0.1:{api}"`) and start it without `--port`.
 - [ ] **Make the servers read the environment.** Replace each hard-coded port or address with the variable the config
-      names, or `PORT` for a server started with `--port`. A fallback in the source is optional, since the tool renders your `default`s outside worktrees, but keep it
-      if the server is also started without the tool.
+      names, or `PORT` for a server started with `--port`. A fallback in the source is optional, since the tool renders
+      your `default`s outside worktrees, but keep it if the server is also started without the tool.
 - [ ] **Wrap every entry point.** Prefix each script that starts a server, or runs anything that talks to one (tests,
-      e2e suites, seed scripts), with `worktree-ports exec --`; for a server script use `exec --port <service> --`. On Windows, npm scripts run under `cmd.exe`, so pass
-      ports through the server's config file rather than `sh -c` (see [wiring examples](#wiring-examples)). A launcher
-      that re-runs itself under `exec` needs a guard against recursing: test a variable your config renders, such
-      as `WORKTREE_ROOT`.
+      e2e suites, seed scripts), with `worktree-ports exec --`, or `exec --port <service> --` for a server that reads
+      `PORT`. On Windows, npm scripts run under `cmd.exe`, so pass ports through the server's config file rather than
+      `sh -c` (see [wiring examples](#wiring-examples)). A launcher that re-runs itself under `exec` needs a guard
+      against recursing. Use a variable only the launcher sets, such as
+      `APP_WRAPPED=1 exec worktree-ports exec -- "$0" "$@"`, not one the config renders: the refusal test below sets
+      `WORKTREE_ROOT` by hand, and a launcher guarded on it would skip `exec` and fall back to the default ports.
+- [ ] **If you run Docker Compose in worktrees, wrap it too.** Host ports in a Compose file (`"8080:8080"`) collide like
+      any others. Render a port-only variable (`"API_PORT": "{api}"`), make the host side use it
+      (`"${API_PORT:-8080}:8080"`), and run `worktree-ports exec -- docker compose up`. Skip this if Compose is not
+      part of your worktree workflow.
 - [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
       port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
       `export API_PORT=8080` with `export API_PORT="${API_PORT:-8080}"`. A `.env` loader that overrides the environment
@@ -135,7 +141,7 @@ starting point.
       its own ports as `listening`, and as `mine` if you set up `verify`. `owner unknown` means the server did not
       answer the route, often because it was started before you added it; restart it.
 - [ ] **Test the refusal.** If you set up `verify`, start the second checkout's backend with a wrong root, such as
-      `WORKTREE_ROOT=/elsewhere npx worktree-ports exec --port <service> -- <backend command>` (`exec` keeps a value you set). Starting
+      `WORKTREE_ROOT=/elsewhere npx worktree-ports exec -- <backend command>` (`exec` keeps a value you set). Starting
       the frontend with `exec --verify` should now refuse and exit 1.
 
 ## How it works
