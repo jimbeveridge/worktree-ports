@@ -11,8 +11,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Tag matches package.json and the changelog has a section for it
@@ -38,12 +38,14 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Trusted publishing needs npm >= 11.5.1, which ships with Node 24.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # No dependency cache in the publishing job, so a poisoned cache can't reach a release.
+          package-manager-cache: false
       - run: npm ci
       - name: Publish to npm (trusted publishing, no token)
         run: npm publish --provenance --access public
