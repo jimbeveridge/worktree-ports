@@ -71,7 +71,8 @@ export interface PortRequest {
 
 /**
  * Build the child's environment. Rendered keys follow `mergeEnv`'s never-overwrite rule, except that with `port`
- * the flag owns `PORT` (a rendered `PORT` is ignored) and its marker (spec §8a):
+ * the flag owns `PORT` (a rendered `PORT`, which a config can't produce but an API caller can, is ignored) and its
+ * marker (spec §8a):
  * - `base.PORT` unset: set `PORT` and the marker.
  * - `base.PORT` equals the inherited marker: an outer `exec --port` set it, so replace both.
  * - otherwise a person or CI pinned `PORT`: keep it, leave the marker alone and emit no marker outcome.

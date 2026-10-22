@@ -12,8 +12,6 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-
-const POSIX_ONLY = process.platform === 'win32' ? 'POSIX ownership and modes' : false
 import { join } from 'node:path'
 import {
   CONFIG_FILE_NAME,
@@ -28,6 +26,7 @@ import {
 } from '../src/config.ts'
 import { DEFAULT_RANGE } from '../src/settings.ts'
 
+const POSIX_ONLY = process.platform === 'win32' ? 'POSIX ownership and modes' : false
 const example = {
   $schema: 'https://unpkg.com/worktree-ports/schema.json',
   services: {
@@ -162,6 +161,19 @@ test('findConfig works without .git and returns undefined when there is no confi
   assert.equal(findConfig(root), join(root, CONFIG_FILE_NAME))
 })
 
+test('findConfig stops at a nested repository or submodule, whose .git is a file', (t) => {
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, '.git'))
+  writeFileSync(join(root, CONFIG_FILE_NAME), JSON.stringify(minimal))
+  const sub = join(root, 'vendor', 'lib')
+  mkdirSync(join(sub, 'src'), { recursive: true })
+  writeFileSync(join(sub, '.git'), 'gitdir: ../../.git/modules/lib\n')
+  // The outer repository's config doesn't apply inside the submodule.
+  assert.equal(findConfig(join(sub, 'src')), undefined)
+  assert.equal(findConfig(join(root, 'vendor')), join(root, CONFIG_FILE_NAME))
+})
+
 test('findConfig stops at the git worktree top-level', (t) => {
   const root = scratch()
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -237,9 +249,19 @@ test('findConfig inside a checkout skips the ownership check', { skip: POSIX_ONL
   const file = join(root, 'src', CONFIG_FILE_NAME)
   writeFileSync(file, JSON.stringify(minimal))
   chmodSync(file, 0o666) // as on a Windows drive mounted in WSL
+  assert.equal(findConfig(join(root, 'src')), file)
+})
+
+test("findConfig doesn't let another user's .git switch the check off", { skip: POSIX_ONLY }, (t) => {
+  // Another user plants /tmp/.git beside /tmp/worktree-ports.json; this user runs from /tmp/mine.
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, '.git'))
+  mkdirSync(join(root, 'mine'))
+  writeFileSync(join(root, CONFIG_FILE_NAME), JSON.stringify(minimal))
   const uid = process.getuid!()
   t.mock.method(process as { getuid(): number }, 'getuid', () => uid + 1)
-  assert.equal(findConfig(join(root, 'src')), file)
+  assert.throws(() => findConfig(join(root, 'mine')), /owned by another user/)
 })
 
 test('findConfig resolves symlinks', (t) => {
@@ -291,8 +313,21 @@ test("schema.json's properties match the fields parseConfig accepts", () => {
   // Everything the schema lists is accepted, and one extra of each kind is rejected.
   parseConfig(example)
   assert.throws(() => parseConfig({ ...example, extra: 1 }), ConfigError)
-  // The schema's env name pattern is the parser's.
-  assert.equal(schema.properties.env.propertyNames.pattern, ENV_NAME.source)
+  // The schema states the parser's env name rule without a lookahead, which not every validator supports.
+  const names = schema.properties.env.propertyNames
+  const bySchema = (k: string) => new RegExp(names.pattern).test(k) && !new RegExp(names.not.pattern).test(k)
+  for (const k of [
+    'WORKTREE_ROOT',
+    'WORKTREE_PORT',
+    'WORKTREE_PORTAL',
+    'WORKTREE_PORTS',
+    'WORKTREE_PORTS_X',
+    'WORKTREE_',
+    'PORT',
+    'worktree_x',
+  ]) {
+    assert.equal(bySchema(k), ENV_NAME.test(k), k)
+  }
   parseConfig({ ...example, env: { WORKTREE_A1: '{root}' } })
 })
 

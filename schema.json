@@ -48,7 +48,10 @@
       "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}. Names must start with WORKTREE_ (not WORKTREE_PORTS), so a config can't set variables that change how programs load code; PORT comes from `exec --port`.",
       "type": "object",
       "propertyNames": {
-        "pattern": "^WORKTREE_(?!PORTS)[A-Z0-9_]+$"
+        "pattern": "^WORKTREE_[A-Z0-9_]+$",
+        "not": {
+          "pattern": "^WORKTREE_PORTS"
+        }
       },
       "additionalProperties": {
         "type": "string"

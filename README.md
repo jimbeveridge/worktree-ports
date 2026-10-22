@@ -551,8 +551,11 @@ versioning from 1.0; 0.x releases may break it.
   console group anyway, so the child exits and the wrapper reports its code. The signal tests are skipped on Windows.
   `exec` runs a `.cmd` or `.bat` command (`npm`, `npx`, anything in `node_modules/.bin`) through `cmd.exe`, with its
   arguments escaped, since Node can't start those files directly. It looks the command up on `PATH` itself (absolute
-  entries only) and runs the path it found, so a checkout can't plant its own `npm.cmd` or `node.exe`, which Windows
-  would otherwise find in the current directory first; write `.\tool` to run one from there.
+  entries only) and runs the path it found, never a bare name, which Windows would look for in the current directory
+  first; a command not on `PATH` exits 127 instead. Write `.\tool` to run one from the current directory. It also sets
+  `NoDefaultCurrentDirectoryInExePath=1` for the child, so `cmd.exe` and the Windows search functions skip the current
+  directory too, including a shim's own `node`. Programs that search for executables on their own may still look
+  there.
 - No runtime dependencies.
 
 ## FAQ and limitations

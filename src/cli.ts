@@ -135,10 +135,14 @@ function spawnChild(argv: string[], base: Record<string, string | undefined>, io
   const env = { ...base, [ACTIVE_MARKER]: '1' }
   // On Windows a `.cmd`/`.bat` (npm, npx, node_modules/.bin) is run through cmd.exe; see planSpawn.
   const plan = planSpawn(argv, { platform: process.platform, env, cwd: io.cwd })
+  if (plan.notFound) {
+    io.stderr(`${PREFIX} could not start "${cmd}": not found on PATH`)
+    return Promise.resolve(127)
+  }
   return new Promise((resolve) => {
     const child = spawn(plan.file, plan.args, {
       stdio: 'inherit',
-      env,
+      env: { ...env, ...plan.env },
       cwd: io.cwd,
       windowsVerbatimArguments: plan.windowsVerbatimArguments,
     })

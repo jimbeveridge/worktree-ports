@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pathExists } from './git.ts'
 import type { PortRange } from './settings.ts'
@@ -38,12 +38,11 @@ export class ConfigError extends Error {
 }
 
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
-/** A POSIX shell variable name; schema.json's `env.propertyNames` uses the same pattern. */
 /**
  * A config's `env` names must start with `WORKTREE_`. No runtime, shell or tool gives such a name a meaning of its
  * own, so a config from an untrusted checkout can't set `NODE_OPTIONS`, `LD_PRELOAD`, `PATH`, `PS1` or the like and
  * turn `exec`, or an `eval` of `env`, into code execution. `WORKTREE_PORTS…` is the tool's own and stays reserved.
- * `PORT` comes from `exec --port` instead.
+ * `PORT` comes from `exec --port` instead. schema.json states the same rule without the lookahead.
  */
 export const ENV_NAME = /^WORKTREE_(?!PORTS)[A-Z0-9_]+$/
 
@@ -201,33 +200,46 @@ export function findConfig(cwd: string = process.cwd()): string | undefined {
   }
 }
 
-/** Whether `dir` or any directory above it holds `.git`. */
+/**
+ * Whether `dir` or any directory above it holds a `.git` this user could have made. A `.git` owned by someone else
+ * doesn't count: otherwise another user could plant `/tmp/.git` beside `/tmp/worktree-ports.json` to skip the check.
+ */
 function insideCheckout(dir: string): boolean {
   for (;;) {
-    if (pathExists(join(dir, '.git'))) return true
+    const git = join(dir, '.git')
+    if (pathExists(git)) {
+      const stat = lstatSync(git, { throwIfNoEntry: false })
+      return stat !== undefined && trustedOwner(stat.uid)
+    }
     const parent = dirname(dir)
     if (parent === dir) return false
     dir = parent
   }
 }
 
+/** On POSIX: this user, root, or under sudo the invoking user (whose uid sudo keeps in SUDO_UID). Always true on Windows. */
+function trustedOwner(owner: number): boolean {
+  if (process.platform === 'win32' || process.getuid === undefined) return true
+  const uid = process.getuid()
+  return owner === uid || owner === 0 || (uid === 0 && owner === Number(process.env.SUDO_UID))
+}
+
 /**
- * Refuse a config another user could have written. Its directory counts too: someone who can write there could
- * replace the file between this check and the read, unless the directory is sticky (as `/tmp` is).
+ * Refuse a config another user could have written. Its directory counts too: its owner, or anyone who can write
+ * there, could replace the file between this check and the read, unless the directory is sticky (as `/tmp` is).
  */
 function assertTrusted(path: string): void {
   if (process.platform === 'win32' || process.getuid === undefined) return
-  const uid = process.getuid()
-  // Under sudo the files are the invoking user's, whose uid sudo keeps in SUDO_UID.
-  const sudoUid = Number(process.env.SUDO_UID)
-  const trusted = (owner: number) => owner === uid || owner === 0 || (uid === 0 && owner === sudoUid)
   const advice = 'pass --config <path> to use it anyway'
   const file = statSync(path)
-  if (!trusted(file.uid)) throw new ConfigError(`${path} is owned by another user; refusing to use it (${advice})`)
+  if (!trustedOwner(file.uid)) throw new ConfigError(`${path} is owned by another user; refusing to use it (${advice})`)
   if ((file.mode & 0o002) !== 0) {
     throw new ConfigError(`${path} is writable by other users; refusing to use it (chmod o-w, or ${advice})`)
   }
   const parent = statSync(dirname(path))
+  if (!trustedOwner(parent.uid)) {
+    throw new ConfigError(`${path} is in a directory owned by another user; refusing to use it (${advice})`)
+  }
   if ((parent.mode & 0o002) !== 0 && (parent.mode & 0o1000) === 0) {
     throw new ConfigError(
       `${path} is in a directory other users can write, so they could replace it; refusing to use it (${advice})`,

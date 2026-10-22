@@ -896,6 +896,18 @@ test('exec --port under WORKTREE_PORTS=off adds nothing', async (t) => {
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null, WORKTREE_PORTS_PORT: null })
 })
 
+test('exec with an env name outside WORKTREE_ exits 1 without starting the command', async (t) => {
+  const repo = repoWithConfig(t, { ...CONFIG, env: { NODE_OPTIONS: '--require ./evil.js' } })
+  const file = join(repo.dir, 'ran.json')
+  const { io, err } = capture(repo.main)
+  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'NODE_OPTIONS')], io), 1)
+  assert.equal(existsSync(file), false)
+  assert.match(err.join('\n'), /env name "NODE_OPTIONS" must start with WORKTREE_/)
+  const e = capture(repo.main)
+  assert.equal(await run(['env'], e.io), 1)
+  assert.deepEqual(e.out, [])
+})
+
 // --- WORKTREE_PORTS_ACTIVE ---
 
 test('exec sets WORKTREE_PORTS_ACTIVE=1 for the child, replacing any inherited value', async (t) => {

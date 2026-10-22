@@ -14,8 +14,9 @@ follows [Semantic Versioning](https://semver.org/).
 - Config discovery stops at the checkout's top level (a submodule's, inside one). On macOS and Linux, a config found
   outside any checkout is refused when it belongs to another user, or when other users could write it or its
   directory; `--config` bypasses the check.
-- On Windows, `exec` looks commands up on `PATH` itself, skipping relative entries, and spawns the path it found, so a
-  checkout can't plant `npm.cmd` or `node.exe` in the current directory.
+- On Windows, `exec` looks commands up on `PATH` itself, skipping relative entries, and spawns the path it found, or
+  exits 127 when there is none, rather than letting Windows search the current directory first. It also sets
+  `NoDefaultCurrentDirectoryInExePath=1` for the child, so `cmd.exe` and shims skip the current directory too.
 
 ### Added
 

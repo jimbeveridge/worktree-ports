@@ -8,7 +8,18 @@ export interface SpawnPlan {
   file: string
   args: string[]
   windowsVerbatimArguments: boolean
+  /** Variables to add to the child's environment. */
+  env?: Record<string, string>
+  /** On Windows, the command wasn't found on `PATH`: don't spawn it (a bare-name spawn searches the cwd first). */
+  notFound?: true
 }
+
+/**
+ * Tells cmd.exe and the Windows search APIs not to look in the current directory for a bare command name, so the
+ * shell `exec` starts, and a shim's own bare `node`, can't pick up an executable planted in the checkout. Programs
+ * that search on their own (libuv in a child Node process, for one) don't honour it.
+ */
+const NO_CWD_SEARCH = { NoDefaultCurrentDirectoryInExePath: '1' }
 
 export interface PlanOptions {
   platform: NodeJS.Platform
@@ -51,7 +62,12 @@ export function resolveWindowsCommand(command: string, opts: PlanOptions): strin
     .map((e) => e.toLowerCase())
   const hasDir = /[\\/]/.test(command) || isAbsolute(command)
   // A relative entry (`.`, `bin`) would resolve against the current directory, so only absolute ones count.
-  const dirs = hasDir ? [''] : (envValue(opts.env, 'PATH') ?? '').split(';').filter((d) => isAbsolute(d))
+  const dirs = hasDir
+    ? ['']
+    : (envValue(opts.env, 'PATH') ?? '')
+        .split(';')
+        .map((d) => d.replace(/^"(.*)"$/, '$1'))
+        .filter((d) => isAbsolute(d))
   const names = exts.includes(extname(command).toLowerCase()) ? [command] : []
   names.push(...exts.map((e) => command + e))
   for (const dir of dirs) {
@@ -64,7 +80,8 @@ export function resolveWindowsCommand(command: string, opts: PlanOptions): strin
 }
 
 function escapeCommand(command: string): string {
-  return command.replace(META, '^$1')
+  // `=` also ends the command token for cmd.exe, so a path like C:\a=b\x.cmd needs it escaped too.
+  return command.replace(META, '^$1').replace(/=/g, '^=')
 }
 
 function escapeArgument(arg: string, twice: boolean): string {
@@ -80,21 +97,22 @@ function escapeArgument(arg: string, twice: boolean): string {
  * `resolveWindowsCommand` found, because both CreateProcess and cmd.exe would search the current directory first:
  * a `.exe`/`.com` is a plain spawn of that path, and a `.cmd`/`.bat` (`npm`, `npx`, anything in
  * `node_modules/.bin`), which can't be spawned without a shell, runs through `cmd.exe /d /s /c` with the path and
- * every argument escaped for cmd. A command that can't be found stays a plain spawn of the bare name, which fails
- * with ENOENT, so `exec` exits 127.
+ * every argument escaped for cmd. Both set `NO_CWD_SEARCH` for the child. A command that can't be found is marked
+ * `notFound` and must not be spawned; `exec` exits 127.
  */
 export function planSpawn(argv: string[], opts: PlanOptions): SpawnPlan {
   const [command, ...args] = argv
   const plain: SpawnPlan = { file: command!, args, windowsVerbatimArguments: false }
   if (opts.platform !== 'win32') return plain
   const resolved = resolveWindowsCommand(command!, opts)
-  if (resolved === undefined) return plain
-  if (!/\.(?:bat|cmd)$/i.test(resolved)) return { ...plain, file: resolved }
+  if (resolved === undefined) return { ...plain, notFound: true }
+  if (!/\.(?:bat|cmd)$/i.test(resolved)) return { ...plain, file: resolved, env: NO_CWD_SEARCH }
   const twice = CMD_SHIM.test(resolved)
   const line = [escapeCommand(resolved), ...args.map((a) => escapeArgument(a, twice))].join(' ')
   return {
     file: envValue(opts.env, 'ComSpec') ?? 'cmd.exe',
     args: ['/d', '/s', '/c', `"${line}"`],
     windowsVerbatimArguments: true,
+    env: NO_CWD_SEARCH,
   }
 }

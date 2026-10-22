@@ -125,9 +125,10 @@ file), so a config above a repository never applies to it. Outside git it goes
 on to the filesystem root. A config found outside any checkout is checked as
 git checks a repository's ownership: on POSIX it must belong to this user (or
 root, or under `sudo` to `SUDO_UID`), and neither it nor its directory may be
-writable by other users unless the directory is sticky, as `/tmp` is. Inside a
-checkout the config is part of a repository the user already chose to work in,
-so it isn't checked; that keeps WSL's `/mnt/c` (where files show as 0777),
+writable by other users unless the directory is sticky, as `/tmp` is, and the
+directory must belong to a trusted owner too. Inside a checkout (a `.git` at or
+above it, owned by a trusted user; decision 9) the config is part of a
+repository the user already chose to work in, so it isn't checked; that keeps WSL's `/mnt/c` (where files show as 0777),
 containers running as root and shared mounts working.
 `--config <path>` overrides the search. Git is not needed to find the config,
 which is what makes the no-git context work. In a monorepo the usual layout is one file at the root; a
@@ -822,5 +823,14 @@ All examples use generic project names, paths and variables.
 8. **On Windows `exec` spawns the resolved path, never a bare name (§9).**
    Both CreateProcess and cmd.exe search the current directory first, so a
    checkout could plant `npm.cmd` or `node.exe`. `exec` looks the command up
-   on `PATH` itself, skipping relative entries such as `.`, and runs the path
-   it found; `.\tool` still runs one from the current directory.
+   on `PATH` itself, skipping relative entries such as `.` and unquoting
+   quoted ones, and runs the path it found; a command not on `PATH` exits 127
+   without being spawned. `.\tool` still runs one from the current
+   directory. The child also gets `NoDefaultCurrentDirectoryInExePath=1`, so
+   cmd.exe and the shims it runs skip the current directory for their own
+   bare names; programs that search on their own (libuv in a child Node) may
+   not honour it, which the tool can't control.
+9. **A `.git` counts as a checkout boundary for the ownership check only
+   when this user could have made it (§6a).** Otherwise another user could
+   plant `/tmp/.git` beside `/tmp/worktree-ports.json` and switch the check
+   off for everyone working under `/tmp`.
