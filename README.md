@@ -295,13 +295,13 @@ depends on (the backend). `npx worktree-ports status` runs the same check withou
 The checked server must expose the checkout root, or another per-checkout value, on a dev-only route such as
 `/__worktree`. Use a route of its own rather than your health endpoint: health endpoints are often polled by load
 balancers and monitors, sometimes from outside, and their response is a contract with that monitoring. The root is a
-local filesystem path, so the route should fail closed: answer with `{"worktreeRoot": ...}` only when `WORKTREE_ROOT`
-is set (only `worktree-ports exec` sets it, through `env` as in the configuration above, so a deployed server never has
-it) and the request's direct peer is a loopback address, and return 404 otherwise. Loopback alone isn't enough: behind a reverse proxy on the same host every
-request arrives from loopback. The loopback check still keeps the path off the network if `WORKTREE_ROOT` ever leaks
-into a deployment. Don't gate on `NODE_ENV` or `APP_ENV` either, since a deployment that forgets to set them exposes the
-path. Read the peer from the socket, not from `X-Forwarded-For` or any other header, and don't enable proxy trust for it
-(Express `trust proxy`, Werkzeug `ProxyFix`).
+local filesystem path, so the route should fail closed: answer with `{"worktreeRoot": ...}` only when `WORKTREE_ROOT` is
+set (only `worktree-ports exec` sets it, through `env` as in the configuration above, so a deployed server never has it)
+and the request's direct peer is a loopback address, and return 404 otherwise. Loopback alone isn't enough: behind a
+reverse proxy on the same host every request arrives from loopback. The loopback check still keeps the path off the
+network if `WORKTREE_ROOT` ever leaks into a deployment. Don't gate on `NODE_ENV` or `APP_ENV` either, since a
+deployment that forgets to set them exposes the path. Read the peer from the socket, not from `X-Forwarded-For` or any
+other header, and don't enable proxy trust for it (Express `trust proxy`, Werkzeug `ProxyFix`).
 
 **Node (Express):**
 

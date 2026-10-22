@@ -409,11 +409,12 @@ monitors, sometimes from outside, and their response is a contract with that
 monitoring. The route fails closed: it answers `{"worktreeRoot": …}` only when
 `WORKTREE_ROOT` is set (only `worktree-ports exec` sets it, so a deployment
 never has it) and the socket's peer is a loopback address, and returns 404
-otherwise, which the tool reads as unreported. Loopback alone isn't enough, since a reverse proxy
-on the same host makes every request look local, and the loopback check still
-protects a deployment that `WORKTREE_ROOT` leaks into. An environment-name gate
-(`NODE_ENV !== "production"`) fails open wherever the variable is unset. The
-peer comes from the socket, never from a forwarding header or proxy trust:
+otherwise, which the tool reads as unreported. Loopback alone isn't enough,
+since a reverse proxy on the same host makes every request look local, and the
+loopback check still protects a deployment that `WORKTREE_ROOT` leaks into. An
+environment-name gate (`NODE_ENV !== "production"`) fails open wherever the
+variable is unset. The peer comes from the socket, never from a forwarding
+header or proxy trust:
 
 ```ts
 app.get('/__worktree', (req, res) => {
@@ -592,9 +593,10 @@ Contents, in order:
 8. **Per-user settings**: the settings file, its location per platform, and
    the default range with why it ends below 32768.
 9. **Guarding against the wrong backend (`--verify`)**: what it checks, the
-   match/mismatch/unreachable outcomes, and a health endpoint example in a few
-   languages (Node, Go, Python) that exposes the checkout root outside
-   production only.
+   match/mismatch/unreachable outcomes, and a dev-only `/__worktree` route
+   example in a few languages (Node, Go, Python) that reports the checkout root
+   only when `WORKTREE_ROOT` is set and the peer is loopback, and 404s
+   otherwise.
 10. **Wiring examples**: `package.json` scripts, a Vite/Next-style dev server
     reading `PORT`, a server in another language reading its address from the
     env, a `Makefile` target, and a CI job.
