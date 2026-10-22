@@ -79,7 +79,7 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   const stateDir = join(scratch, 'state')
   mkdirSync(stateDir)
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, WORKTREE_PORTS_STATE_DIR: stateDir }
-  for (const name of ['CI', 'WORKTREE_PORTS', 'PORT', 'BACKEND_PORT', 'BACKEND_ORIGIN', 'WORKTREE_ROOT'])
+  for (const name of ['CI', 'WORKTREE_PORTS', 'PORT', 'WORKTREE_PORTS_PORT', 'BACKEND_ORIGIN', 'WORKTREE_ROOT'])
     delete baseEnv[name]
 
   const dirs = { main: join(repo.main, 'example'), worktree: join(worktree, 'example') }
@@ -135,7 +135,7 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   for (const child of featureRun) stop(child)
   await waitListening(feature.ports.backend, false)
   await waitListening(feature.ports.frontend, false)
-  start(dirs.main, 'backend', { ...baseEnv, BACKEND_PORT: String(feature.ports.backend) })
+  start(dirs.main, 'backend', { ...baseEnv, PORT: String(feature.ports.backend) })
   await waitListening(feature.ports.backend)
   const verify = await new Promise<{ code: number | null; stderr: string }>((resolve, reject) => {
     const child = spawn(cli(dirs.worktree), ['exec', '--verify', '--', process.execPath, 'frontend.mjs'], {

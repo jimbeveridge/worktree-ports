@@ -1,7 +1,7 @@
 // API server. Reports which checkout it runs in, so a frontend can tell whether it is talking to its own backend.
 import { createServer } from 'node:http'
 
-const port = Number(process.env.BACKEND_PORT)
+const port = Number(process.env.PORT)
 const worktreeRoot = process.env.WORKTREE_ROOT ?? null
 
 function send(res, status, body) {
@@ -26,7 +26,7 @@ const server = createServer((req, res) => {
 })
 
 if (!Number.isInteger(port)) {
-  console.error('BACKEND_PORT is not set. Start this with: npm run backend')
+  console.error('PORT is not set. Start this with: npm run backend')
   process.exit(2)
 }
 server.listen(port, '127.0.0.1', () => {

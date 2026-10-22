@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "backend": "worktree-ports exec -- node backend.mjs",
-    "frontend": "worktree-ports exec --verify -- node frontend.mjs",
+    "backend": "worktree-ports exec --port backend -- node backend.mjs",
+    "frontend": "worktree-ports exec --port frontend --verify -- node frontend.mjs",
     "ports": "worktree-ports show"
   },
   "devDependencies": {

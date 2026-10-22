@@ -5,7 +5,8 @@ proxies `/api/*` to it and shows both checkouts side by side. If the two ever di
 That is the problem `worktree-ports` solves: two worktrees of one project must not end up talking to each other's
 servers.
 
-- `worktree-ports.json` declares two services and the environment variables each server reads.
+- `worktree-ports.json` declares two services. The scripts pass `--port <service>`, so each server gets its own port as
+  `PORT`; the shared `env` map holds only the values every process needs.
 - `backend.mjs` and `frontend.mjs` use only `node:http`, with no dependencies and no build step.
 - The main checkout gets the defaults (frontend 4000, backend 4100). Every linked worktree gets its own stable block
   of ports, at 20000 or above.

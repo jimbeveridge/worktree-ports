@@ -18,3 +18,8 @@ follows [Semantic Versioning](https://semver.org/).
 - A JSON config file with services, port offsets, defaults, environment templates and a `verify` block, plus
   a published JSON schema.
 - A typed library API alongside the command line tool.
+- `exec --port <service>` sets `PORT` to that service's port for one child only, so each server can get its own
+  without a shared `PORT` in the config's `env`. `env --port <service>` prints the same lines.
+- `WORKTREE_PORTS_PORT`, set by `exec --port` to mark the `PORT` it gave, so a nested `exec --port` can replace its
+  own `PORT` without overwriting one a person or CI pinned.
+- `exec -v` / `--verbose` prints which variables the tool set or kept, never the rest of the environment.

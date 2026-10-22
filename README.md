@@ -41,17 +41,17 @@ Describe your servers in `worktree-ports.json` at the root of your project's rep
   },
   "env": {
     "API_ADDR": "127.0.0.1:{api}",
-    "PORT": "{web}",
     "API_ORIGIN": "http://127.0.0.1:{api}",
     "WORKTREE_ROOT": "{root}"
   }
 }
 ```
 
-Wrap each dev script with `exec`, which runs the command with those variables set:
+Wrap each dev script with `exec`, which runs the command with those variables set. `--port <service>` also sets `PORT`
+to that service's port, for that process only:
 
 ```sh
-npx worktree-ports exec -- npm run dev
+npx worktree-ports exec --port web -- npm run dev
 ```
 
 `show` prints the ports for the checkout you are in. In the main checkout it prints your defaults:
@@ -105,17 +105,19 @@ starting point.
 - [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and test
       base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout failure
       described in [the problem](#the-problem).
-- [ ] **Check the variable names.** Every process run under `exec` receives the whole `env` map. Avoid generic names
-      such as `PORT` unless only one of your servers reads them: a backend that reads `PORT` before its own address
-      variable would bind to the frontend's port. Check which variables each server reads, and in what order.
+- [ ] **Give each server its own port with `--port`.** Every process run under `exec` receives the whole `env` map, so
+      a generic name such as `PORT` in `env` would reach every server, and a backend that reads it would bind to the
+      frontend's port. Start each server with `exec --port <service>` instead: it sets `PORT` for that process only.
+      Keep `env` for values every process needs (origins, proxy targets, `WORKTREE_ROOT`). A server that reads a
+      different variable for its own port can still get it from `env`, as long as no other server reads that name.
 - [ ] **Make the servers read the environment.** Replace each hard-coded port or address with the variable the config
       names. A fallback in the source is optional, since the tool renders your `default`s outside worktrees, but keep it
       if the server is also started without the tool.
 - [ ] **Wrap every entry point.** Prefix each script that starts a server, or runs anything that talks to one (tests,
       e2e suites, seed scripts), with `worktree-ports exec --`. On Windows, npm scripts run under `cmd.exe`, so pass
       ports through the server's config file rather than `sh -c` (see [wiring examples](#wiring-examples)). A launcher
-      that re-runs itself under `exec` needs a guard against recursing: the tool sets no marker of its own, so test a
-      variable your config renders, such as `WORKTREE_ROOT`.
+      that re-runs itself under `exec` needs a guard against recursing: test a variable your config renders, such
+      as `WORKTREE_ROOT`.
 - [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
       port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
       `export API_PORT=8080` with `export API_PORT="${API_PORT:-8080}"`. A `.env` loader that overrides the environment
@@ -207,8 +209,8 @@ base when it can.
 ```text
 worktree-ports show    [--json] [--config <path>]
 worktree-ports status  [--json] [--config <path>]
-worktree-ports env     [--config <path>]
-worktree-ports exec    [--verify] [--config <path>] -- <command> [args...]
+worktree-ports env     [--port <service>] [--config <path>]
+worktree-ports exec    [--port <service>] [--verify] [-v | --verbose] [--config <path>] -- <command> [args...]
 worktree-ports list    [--json]
 worktree-ports release [--config <path>]
 worktree-ports prune   [--unused-for <duration>] [--dry-run]
@@ -238,9 +240,20 @@ worktree-ports --version | --help
   ```console
   $ npx worktree-ports env
   export API_ADDR='127.0.0.1:27420'
-  export PORT='27421'
   export API_ORIGIN='http://127.0.0.1:27420'
   export WORKTREE_ROOT='/home/me/src/app-feat'
+  ```
+
+  `env --port <service>` adds the two lines `exec --port` would set, after the rendered ones. If `env` also renders
+  `PORT`, that line is left out, so `PORT` is printed once.
+
+  ```console
+  $ npx worktree-ports env --port web
+  export API_ADDR='127.0.0.1:27420'
+  export API_ORIGIN='http://127.0.0.1:27420'
+  export WORKTREE_ROOT='/home/me/src/app-feat'
+  export PORT='27421'
+  export WORKTREE_PORTS_PORT='27421'
   ```
 
 - **`exec -- <command>`** runs the command with the rendered environment merged in, and exits with its result. It never
@@ -249,6 +262,36 @@ worktree-ports --version | --help
   process group, and a second delivery would break tools that treat a second Ctrl-C as "force quit". The wrapper ignores
   `SIGINT` itself while the child runs, so it can still report the child's exit code. With no config found, it warns and
   runs the command unchanged.
+- **`exec --port <service> -- <command>`** also sets `PORT` to that service's port in the current context (the claimed
+  port in a linked worktree, the `default` in the main checkout and CI), for this child only. It adds to the rendered
+  `env`; it never replaces it. It always sets the variable named `PORT`; a server that reads another name keeps getting
+  it from `env`. If `env` also renders `PORT`, the flag's value is used for this child instead. An unknown service
+  exits 1 and names the declared ones. With `WORKTREE_PORTS=off` or no config, nothing is added, `PORT` included.
+
+  `exec` often runs inside `exec` without anyone planning it, such as a wrapped test script that starts a wrapped
+  server. So `--port` also sets `WORKTREE_PORTS_PORT` to the value it gave `PORT`, marking it as the tool's. An inner
+  `exec --port` finding `PORT` equal to that marker replaces both silently; a `PORT` that differs (pinned by a person
+  or CI) is kept, with the usual warning. See [Environment variables](#environment-variables).
+
+- **`exec -v` / `--verbose`** prints, to stderr after the banner, what reached the child, after the never-overwrite
+  rule and the `--port` exception: one line per variable the tool manages, then the command, shell-quoted so it can be
+  rerun. Each line says `set`, `kept` (with the value this checkout would have used) or `replaced` (only `PORT` and
+  `WORKTREE_PORTS_PORT`, when an outer `exec --port` set them). Only managed variables appear: every key the config's
+  `env` renders, plus `PORT` and `WORKTREE_PORTS_PORT` with `--port`. The rest of your environment, which often holds
+  tokens, is never printed. With `--verify`, a `verify: <url> reports this checkout` line precedes the command.
+
+  ```console
+  $ npx worktree-ports exec -v --port web -- node -v
+  worktree-ports: app-feat (linked worktree): api=27420 web=27421
+  worktree-ports:   set      API_ADDR=127.0.0.1:27420
+  worktree-ports:   set      API_ORIGIN=http://127.0.0.1:27420
+  worktree-ports:   set      WORKTREE_ROOT=/home/me/src/app-feat
+  worktree-ports:   set      PORT=27421 (--port web)
+  worktree-ports:   set      WORKTREE_PORTS_PORT=27421
+  worktree-ports: running: node -v
+  v22.18.0
+  ```
+
 - **`exec --verify -- <command>`** first checks that the server at `verify.url` belongs to this checkout. See
   [below](#guarding-against-the-wrong-backend---verify).
 - **`list`** prints every claim in the registry across all repositories: base, size, last use, whether it is stale (and
@@ -291,17 +334,21 @@ Exit codes:
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WORKTREE_PORTS`           | Overrides context detection. Unset or `auto`: the table above. `default`: use `default`s everywhere. `claim`: claim a block even in the main checkout or CI (needs git). `off`: `exec` runs the command with nothing added, and other commands report that the tool is off. |
 | `WORKTREE_PORTS_STATE_DIR` | Where the registry lives. See [Per-user settings](#per-user-settings).                                                                                                                                                                                                      |
+| `WORKTREE_PORTS_PORT`      | Set by `exec --port` (and printed by `env --port`) to the value it gave `PORT`, so a nested `exec --port` can tell its own `PORT` from one you pinned. Don't set it yourself.                                                                                               |
 | `CI`                       | When set and not `""`, `0` or `false`, the tool uses `default`s and never writes the registry.                                                                                                                                                                              |
 
 **`exec` never overwrites.** It only fills in variables that are unset in its own environment. When an existing value
 differs from the rendered one, it warns on stderr so it is clear which one won:
 
 ```console
-$ PORT=9999 npx worktree-ports exec -- sh -c 'echo $PORT'
+$ PORT=9999 npx worktree-ports exec --port web -- sh -c 'echo $PORT'
 worktree-ports: PORT is already set to "9999"; keeping it (this checkout would use "27421")
 worktree-ports: app-feat (linked worktree): api=27420 web=27421
 9999
 ```
+
+The one exception is `PORT` under `--port`: a `PORT` equal to `WORKTREE_PORTS_PORT` was set by an outer `exec --port`,
+so the inner one replaces both silently. Any other `PORT` is yours and is kept.
 
 A CI job or a developer that pins `PORT` keeps it. The flip side is a warning to heed: a stale `PORT` exported in your
 shell profile silently beats the tool in every worktree.
@@ -408,22 +455,22 @@ def worktree():
 ## Wiring examples
 
 The contract with a server is only environment variables: it reads its port, or its listen address, from the variable
-the config names.
+the config names, or from `PORT` when you start it with `exec --port`.
 
-**`package.json` scripts.** Wrap each server's script:
+**`package.json` scripts.** Wrap each server's script, with `--port` for the port it listens on:
 
 ```json
 {
   "scripts": {
-    "api": "worktree-ports exec -- node server.js",
-    "web": "worktree-ports exec --verify -- vite",
+    "api": "worktree-ports exec --port api -- node server.js",
+    "web": "worktree-ports exec --port web --verify -- vite",
     "ports": "worktree-ports show"
   }
 }
 ```
 
-**A Vite or Next-style dev server.** Next.js and many other dev servers read `PORT`, which `exec` sets from
-`"PORT": "{web}"`. Vite does not; read the variable in `vite.config.js` instead:
+**A Vite or Next-style dev server.** Next.js and many other dev servers read `PORT`, which `exec --port web`
+sets. Vite does not; read the variable in `vite.config.js` instead:
 
 ```js
 export default { server: { port: Number(process.env.PORT) || 5173, strictPort: true } }
@@ -444,7 +491,7 @@ log.Fatal(http.ListenAndServe(os.Getenv("API_ADDR"), nil))
 
 ```make
 dev:
-	npx worktree-ports exec -- npm run dev
+	npx worktree-ports exec --port web -- npm run dev
 
 ports:
 	npx worktree-ports show

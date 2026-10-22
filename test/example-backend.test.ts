@@ -19,7 +19,7 @@ async function freePort(): Promise<number> {
 
 async function startBackend(t: TestContext, worktreeRoot: string | undefined): Promise<number> {
   const port = await freePort()
-  const env: NodeJS.ProcessEnv = { ...process.env, BACKEND_PORT: String(port) }
+  const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(port) }
   delete env.WORKTREE_ROOT
   if (worktreeRoot !== undefined) env.WORKTREE_ROOT = worktreeRoot
   const child: ChildProcess = spawn(process.execPath, [BACKEND], { env, stdio: 'ignore' })
