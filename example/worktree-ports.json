@@ -1,0 +1,18 @@
+{
+  "$schema": "https://unpkg.com/worktree-ports/schema.json",
+  "services": {
+    "backend": { "offset": 0, "default": 4100 },
+    "frontend": { "offset": 1, "default": 4000 }
+  },
+  "env": {
+    "BACKEND_PORT": "{backend}",
+    "PORT": "{frontend}",
+    "BACKEND_ORIGIN": "http://127.0.0.1:{backend}",
+    "WORKTREE_ROOT": "{root}"
+  },
+  "verify": {
+    "url": "http://127.0.0.1:{backend}/healthz",
+    "field": "worktreeRoot",
+    "expect": "{root}"
+  }
+}

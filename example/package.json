@@ -1,0 +1,13 @@
+{
+  "name": "worktree-ports-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backend": "worktree-ports exec -- node backend.mjs",
+    "frontend": "worktree-ports exec --verify -- node frontend.mjs",
+    "ports": "worktree-ports show"
+  },
+  "devDependencies": {
+    "worktree-ports": "file:.."
+  }
+}

@@ -1,0 +1,31 @@
+// API server. Reports which checkout it runs in, so a frontend can tell whether it is talking to its own backend.
+import { createServer } from 'node:http'
+
+const port = Number(process.env.BACKEND_PORT)
+const worktreeRoot = process.env.WORKTREE_ROOT ?? null
+
+function send(res, status, body) {
+  res.writeHead(status, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+const server = createServer((req, res) => {
+  const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+  if (pathname === '/healthz') {
+    // Only a non-production server reveals its root; the tool's verify check reads this field.
+    const exposeRoot = process.env.NODE_ENV !== 'production'
+    send(res, 200, { status: 'ok', ...(exposeRoot ? { worktreeRoot } : {}) })
+  } else if (pathname === '/api/hello') {
+    send(res, 200, { worktreeRoot, port })
+  } else {
+    send(res, 404, { error: 'not found' })
+  }
+})
+
+if (!Number.isInteger(port)) {
+  console.error('BACKEND_PORT is not set. Start this with: npm run backend')
+  process.exit(2)
+}
+server.listen(port, '127.0.0.1', () => {
+  console.log(`backend for ${worktreeRoot} listening on http://127.0.0.1:${port}`)
+})
