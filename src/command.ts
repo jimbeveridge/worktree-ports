@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import { win32 } from 'node:path'
 
-const { extname, isAbsolute, join, normalize, resolve } = win32
+const { extname, isAbsolute, join, resolve } = win32
 
 /** How to spawn `exec`'s child: the file, its argv, and whether Node must pass the argv to Windows as-is. */
 export interface SpawnPlan {
@@ -50,7 +50,8 @@ export function resolveWindowsCommand(command: string, opts: PlanOptions): strin
     .filter((e) => e !== '')
     .map((e) => e.toLowerCase())
   const hasDir = /[\\/]/.test(command) || isAbsolute(command)
-  const dirs = hasDir ? [''] : (envValue(opts.env, 'PATH') ?? '').split(';').filter((d) => d !== '')
+  // A relative entry (`.`, `bin`) would resolve against the current directory, so only absolute ones count.
+  const dirs = hasDir ? [''] : (envValue(opts.env, 'PATH') ?? '').split(';').filter((d) => isAbsolute(d))
   const names = exts.includes(extname(command).toLowerCase()) ? [command] : []
   names.push(...exts.map((e) => command + e))
   for (const dir of dirs) {
@@ -75,19 +76,22 @@ function escapeArgument(arg: string, twice: boolean): string {
 }
 
 /**
- * Plan the spawn of `argv`. Off Windows, and on Windows for a `.exe`/`.com` (or a command that can't be found, so
- * the spawn fails with ENOENT and `exec` exits 127), it's a plain spawn. A `.cmd`/`.bat` (`npm`, `npx`, anything in
- * `node_modules/.bin`) can't be spawned without a shell, so it runs through `cmd.exe /d /s /c` with every
- * argument escaped for cmd.
+ * Plan the spawn of `argv`. Off Windows it's a plain spawn. On Windows the command is replaced by the path
+ * `resolveWindowsCommand` found, because both CreateProcess and cmd.exe would search the current directory first:
+ * a `.exe`/`.com` is a plain spawn of that path, and a `.cmd`/`.bat` (`npm`, `npx`, anything in
+ * `node_modules/.bin`), which can't be spawned without a shell, runs through `cmd.exe /d /s /c` with the path and
+ * every argument escaped for cmd. A command that can't be found stays a plain spawn of the bare name, which fails
+ * with ENOENT, so `exec` exits 127.
  */
 export function planSpawn(argv: string[], opts: PlanOptions): SpawnPlan {
   const [command, ...args] = argv
   const plain: SpawnPlan = { file: command!, args, windowsVerbatimArguments: false }
   if (opts.platform !== 'win32') return plain
   const resolved = resolveWindowsCommand(command!, opts)
-  if (resolved === undefined || !/\.(?:bat|cmd)$/i.test(resolved)) return plain
+  if (resolved === undefined) return plain
+  if (!/\.(?:bat|cmd)$/i.test(resolved)) return { ...plain, file: resolved }
   const twice = CMD_SHIM.test(resolved)
-  const line = [escapeCommand(normalize(command!)), ...args.map((a) => escapeArgument(a, twice))].join(' ')
+  const line = [escapeCommand(resolved), ...args.map((a) => escapeArgument(a, twice))].join(' ')
   return {
     file: envValue(opts.env, 'ComSpec') ?? 'cmd.exe',
     args: ['/d', '/s', '/c', `"${line}"`],

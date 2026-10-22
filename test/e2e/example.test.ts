@@ -79,7 +79,15 @@ test('example: two checkouts, one registry, and a verify mismatch', { timeout: 9
   const stateDir = join(scratch, 'state')
   mkdirSync(stateDir)
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, WORKTREE_PORTS_STATE_DIR: stateDir }
-  for (const name of ['CI', 'WORKTREE_PORTS', 'PORT', 'WORKTREE_PORTS_PORT', 'BACKEND_ORIGIN', 'WORKTREE_ROOT'])
+  for (const name of [
+    'CI',
+    'WORKTREE_PORTS',
+    'PORT',
+    'WORKTREE_PORTS_PORT',
+    'WORKTREE_PORTS_ACTIVE',
+    'WORKTREE_BACKEND_ORIGIN',
+    'WORKTREE_ROOT',
+  ])
     delete baseEnv[name]
 
   const dirs = { main: join(repo.main, 'example'), worktree: join(worktree, 'example') }

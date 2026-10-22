@@ -52,7 +52,7 @@ try {
   git(['init', '-q'])
   const config = {
     services: { api: { offset: 0, default: 8080 }, web: { offset: 1, default: 3000 } },
-    env: { PORT: '{api}', WEB_PORT: '{web}' },
+    env: { WORKTREE_API_PORT: '{api}', WORKTREE_WEB_PORT: '{web}' },
   }
   writeFileSync(join(main, 'worktree-ports.json'), JSON.stringify(config))
   git(['add', 'worktree-ports.json'])
@@ -79,10 +79,12 @@ try {
       [
         join(dir, 'node_modules', 'worktree-ports', 'dist', 'bin', 'worktree-ports.js'),
         'exec',
+        '--port',
+        'web',
         '--',
         'node',
         '-e',
-        'process.exit(process.env.PORT ? 0 : 1)',
+        'process.exit(process.env.WORKTREE_API_PORT && process.env.PORT ? 0 : 1)',
       ],
       dir,
     )

@@ -84,7 +84,8 @@ function locateConfig(givenCwd: string, configPath: string | undefined): { cwd: 
   const cwd = realpathSync(givenCwd)
   if (configPath !== undefined) return { cwd, configPath: realpathOr(resolve(cwd, configPath)) }
   const found = findConfig(cwd)
-  if (found === undefined) throw new NoConfigError(`no ${CONFIG_FILE_NAME} found in ${cwd} or any parent directory`)
+  if (found === undefined)
+    throw new NoConfigError(`no ${CONFIG_FILE_NAME} found in ${cwd} or above it, up to its checkout's top level`)
   return { cwd, configPath: found }
 }
 

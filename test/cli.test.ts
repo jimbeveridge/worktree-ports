@@ -27,7 +27,7 @@ type T = { after: (fn: () => void | Promise<void>) => void }
 
 const CONFIG = {
   services: { api: { offset: 0, default: 8080 }, web: { offset: 1, default: 3000 } },
-  env: { PORT: '{api}', ROOT: '{root}' },
+  env: { WORKTREE_API_PORT: '{api}', WORKTREE_ROOT: '{root}' },
 }
 
 async function waitForFile(path: string, deadlineMs = 5000): Promise<void> {
@@ -117,7 +117,7 @@ async function server(t: T, body: Record<string, unknown>): Promise<number> {
 function verifyConfig(apiPort: number): Record<string, unknown> {
   return {
     services: { api: { offset: 0, default: apiPort }, web: { offset: 1, default: 3 } },
-    env: { PORT: '{api}' },
+    env: { WORKTREE_API_PORT: '{api}' },
     verify: { url: 'http://127.0.0.1:{api}/health', field: 'root', expect: '{root}' },
   }
 }
@@ -238,7 +238,10 @@ test('show in the main checkout uses the defaults', async (t) => {
 })
 
 test('show --json in a linked worktree and the main checkout', async (t) => {
-  const repo = repoWithConfig(t, { ...verifyConfig(8080), env: { PORT: '{api}', ROOT: '{root}' } })
+  const repo = repoWithConfig(t, {
+    ...verifyConfig(8080),
+    env: { WORKTREE_API_PORT: '{api}', WORKTREE_ROOT: '{root}' },
+  })
   const wt = repo.worktree('feat')
 
   const linked = capture(wt)
@@ -251,7 +254,7 @@ test('show --json in a linked worktree and the main checkout', async (t) => {
   assert.equal(l.configPath, join(wt, 'worktree-ports.json'))
   assert.equal(l.block.size, 10)
   assert.deepEqual(l.ports, { api: l.block.base, web: l.block.base + 1 })
-  assert.deepEqual(l.env, { PORT: String(l.block.base), ROOT: wt })
+  assert.deepEqual(l.env, { WORKTREE_API_PORT: String(l.block.base), WORKTREE_ROOT: wt })
   assert.deepEqual(l.verify, { url: `http://127.0.0.1:${l.block.base}/health`, field: 'root', expect: wt })
 
   const main = capture(repo.main)
@@ -261,7 +264,7 @@ test('show --json in a linked worktree and the main checkout', async (t) => {
   assert.equal(m.name, 'main')
   assert.equal(m.block, null)
   assert.deepEqual(m.ports, { api: 8080, web: 3 })
-  assert.deepEqual(m.env, { PORT: '8080', ROOT: repo.main })
+  assert.deepEqual(m.env, { WORKTREE_API_PORT: '8080', WORKTREE_ROOT: repo.main })
 })
 
 test('show --json without a verify section omits verify', async (t) => {
@@ -274,17 +277,21 @@ test('show --json without a verify section omits verify', async (t) => {
 // --- env ---
 
 test('env prints shell-quoted exports', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: "{root}/it's", PORT: '{api}' } })
+  const repo = repoWithConfig(t, { ...CONFIG, env: { WORKTREE_ROOT: "{root}/it's", WORKTREE_API_PORT: '{api}' } })
   const { io, out } = capture(repo.main)
   assert.equal(await run(['env'], io), 0)
-  assert.deepEqual(out, [`export ROOT='${repo.main}/it'\\''s'`, `export PORT='8080'`])
+  assert.deepEqual(out, [`export WORKTREE_ROOT='${repo.main}/it'\\''s'`, `export WORKTREE_API_PORT='8080'`])
 })
 
 test('env --port appends PORT and the marker', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', PORT: '{api}' } })
+  const repo = repoWithConfig(t, { ...CONFIG, env: { WORKTREE_ROOT: '{root}' } })
   const { io, out } = capture(repo.main)
   assert.equal(await run(['env', '--port', 'web'], io), 0)
-  assert.deepEqual(out, [`export ROOT='${repo.main}'`, `export PORT='3000'`, `export WORKTREE_PORTS_PORT='3000'`])
+  assert.deepEqual(out, [
+    `export WORKTREE_ROOT='${repo.main}'`,
+    `export PORT='3000'`,
+    `export WORKTREE_PORTS_PORT='3000'`,
+  ])
 })
 
 test('env --port with an unknown service exits 1', async (t) => {
@@ -298,19 +305,22 @@ test('env --port with an unknown service exits 1', async (t) => {
 // --- exec ---
 
 test('exec passes the rendered env, never overwrites, and warns on a differing value', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { PORT: '{api}', ROOT: '{root}', SAME: 'x' } })
+  const repo = repoWithConfig(t, {
+    ...CONFIG,
+    env: { WORKTREE_API_PORT: '{api}', WORKTREE_ROOT: '{root}', WORKTREE_SAME: 'x' },
+  })
   const wt = repo.worktree('feat')
   const file = join(repo.dir, 'env.json')
-  const { io, err } = capture(wt, { ROOT: '/explicit', SAME: 'x' })
-  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'PORT', 'ROOT', 'SAME')], io), 0)
+  const { io, err } = capture(wt, { WORKTREE_ROOT: '/explicit', WORKTREE_SAME: 'x' })
+  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'WORKTREE_API_PORT', 'WORKTREE_ROOT', 'WORKTREE_SAME')], io), 0)
   const seen = JSON.parse(readFileSync(file, 'utf8'))
-  assert.match(seen.PORT, /^\d+0$/)
-  assert.ok(Number(seen.PORT) >= 20000, `PORT was ${seen.PORT}`)
-  assert.equal(seen.ROOT, '/explicit')
-  assert.equal(seen.SAME, 'x')
+  assert.match(seen.WORKTREE_API_PORT, /^\d+0$/)
+  assert.ok(Number(seen.WORKTREE_API_PORT) >= 20000, `WORKTREE_API_PORT was ${seen.WORKTREE_API_PORT}`)
+  assert.equal(seen.WORKTREE_ROOT, '/explicit')
+  assert.equal(seen.WORKTREE_SAME, 'x')
   const stderr = err.join('\n')
-  assert.match(stderr, /worktree-ports: ROOT is already set to "\/explicit"; keeping it/)
-  assert.doesNotMatch(stderr, /SAME/)
+  assert.match(stderr, /worktree-ports: WORKTREE_ROOT is already set to "\/explicit"; keeping it/)
+  assert.doesNotMatch(stderr, /WORKTREE_SAME/)
 })
 
 test('exec passes through the child exit code', async (t) => {
@@ -448,18 +458,18 @@ const shownArg = (a: string) => (SAFE_ARG.test(a) ? a : `'${a.replaceAll("'", `'
 const NOOP = ['--', process.execPath, '-e', '0']
 
 test('exec -v lists set, replaced and kept variables and the command', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', ADDR: '127.0.0.1:{api}' } })
+  const repo = repoWithConfig(t, { ...CONFIG, env: { WORKTREE_ROOT: '{root}', WORKTREE_ADDR: '127.0.0.1:{api}' } })
   const { io, err } = capture(repo.main, {
     PORT: '8080',
     WORKTREE_PORTS_PORT: '8080',
-    ADDR: '127.0.0.1:9000',
+    WORKTREE_ADDR: '127.0.0.1:9000',
     SECRET: 'hunter2',
   })
   assert.equal(await run(['exec', '-v', '--port', 'web', ...NOOP], io), 0)
   assert.deepEqual(err, [
     'worktree-ports: main (main checkout): api=8080 web=3000',
-    `worktree-ports:   set      ROOT=${repo.main}`,
-    'worktree-ports:   kept     ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:8080)',
+    `worktree-ports:   set      WORKTREE_ROOT=${repo.main}`,
+    'worktree-ports:   kept     WORKTREE_ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:8080)',
     'worktree-ports:   replaced PORT=3000 (--port web; was 8080 from an outer exec)',
     'worktree-ports:   replaced WORKTREE_PORTS_PORT=3000',
     `worktree-ports: running: ${NOOP.slice(1).map(shownArg).join(' ')}`,
@@ -478,10 +488,10 @@ test('exec -v marks a set PORT with its service', async (t) => {
 
 test('exec -v shows a kept value even when equal', async (t) => {
   const repo = repoWithConfig(t)
-  const { io, err } = capture(repo.main, { ROOT: repo.main })
+  const { io, err } = capture(repo.main, { WORKTREE_ROOT: repo.main })
   assert.equal(await run(['exec', '-v', ...NOOP], io), 0)
   assert.ok(
-    err.includes(`worktree-ports:   kept     ROOT=${repo.main} (this checkout would use ${repo.main})`),
+    err.includes(`worktree-ports:   kept     WORKTREE_ROOT=${repo.main} (this checkout would use ${repo.main})`),
     err.join('\n'),
   )
 })
@@ -541,12 +551,12 @@ test('flags after -- belong to the child', () => {
 })
 
 test('exec without -v prints no variable lines', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}', ADDR: '127.0.0.1:{api}' } })
-  const { io, err } = capture(repo.main, { ADDR: '127.0.0.1:9000', SECRET: 'hunter2' })
+  const repo = repoWithConfig(t, { ...CONFIG, env: { WORKTREE_ROOT: '{root}', WORKTREE_ADDR: '127.0.0.1:{api}' } })
+  const { io, err } = capture(repo.main, { WORKTREE_ADDR: '127.0.0.1:9000', SECRET: 'hunter2' })
   assert.equal(await run(['exec', '--port', 'web', ...NOOP], io), 0)
   assert.equal(
     err[0],
-    'worktree-ports: ADDR is already set to "127.0.0.1:9000"; keeping it (this checkout would use "127.0.0.1:8080")',
+    'worktree-ports: WORKTREE_ADDR is already set to "127.0.0.1:9000"; keeping it (this checkout would use "127.0.0.1:8080")',
   )
   assert.ok(err.some((l) => l.startsWith('worktree-ports: main (main checkout)')))
   assert.equal(
@@ -734,8 +744,8 @@ test('WORKTREE_PORTS=off: exec adds nothing and show reports off', async (t) => 
   const wt = repo.worktree('feat')
   const file = join(repo.dir, 'env.json')
   const ex = capture(wt, { WORKTREE_PORTS: 'off' })
-  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'PORT', 'ROOT')], ex.io), 0)
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null, ROOT: null })
+  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_ROOT')], ex.io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null, WORKTREE_ROOT: null })
   assert.deepEqual(ex.err, [])
 
   for (const command of [['show'], ['env'], ['status'], ['list'], ['release'], ['prune']]) {
@@ -824,18 +834,21 @@ test('--port and --config need a real value', async (t) => {
 })
 
 test('exec --port sets PORT and the marker for the child', async (t) => {
-  const repo = repoWithConfig(t, { ...CONFIG, env: { ROOT: '{root}' } })
+  const repo = repoWithConfig(t, { ...CONFIG, env: { WORKTREE_ROOT: '{root}' } })
   const wt = repo.worktree('feat')
   const show = capture(wt)
   assert.equal(await run(['show', '--json'], show.io), 0)
   const webPort = String(JSON.parse(show.out.join('\n')).ports.web)
   const file = join(repo.dir, 'env.json')
   const { io } = capture(wt)
-  assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT', 'ROOT')], io), 0)
+  assert.equal(
+    await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT', 'WORKTREE_ROOT')], io),
+    0,
+  )
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
     PORT: webPort,
     WORKTREE_PORTS_PORT: webPort,
-    ROOT: wt,
+    WORKTREE_ROOT: wt,
   })
 })
 

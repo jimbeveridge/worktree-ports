@@ -45,13 +45,10 @@
       "default": "default"
     },
     "env": {
-      "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}. Names that control what code a program loads or runs (PATH, NODE_OPTIONS, LD_*, ...) are rejected.",
+      "description": "Environment variable name to template. Tokens: {root}, {name}, {home} and {<service>}. Names must start with WORKTREE_ (not WORKTREE_PORTS), so a config can't set variables that change how programs load code; PORT comes from `exec --port`.",
       "type": "object",
       "propertyNames": {
-        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-        "not": {
-          "pattern": "^(PATH|PATHEXT|COMSPEC|HOME|USERPROFILE|IFS|ENV|BASH_ENV|BASHOPTS|SHELLOPTS|PROMPT_COMMAND|PS4|EDITOR|VISUAL|PAGER|BROWSER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|PYTHON[A-Z]*|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|GIT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|WORKTREE_PORTS[A-Z0-9_]*)$"
-        }
+        "pattern": "^WORKTREE_(?!PORTS)[A-Z0-9_]+$"
       },
       "additionalProperties": {
         "type": "string"

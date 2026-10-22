@@ -8,11 +8,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Security
 
-- A config's `env` may not set names that pick what code a program loads or runs (`PATH`, `NODE_OPTIONS`, `LD_*`,
-  `GIT_*` and similar), so an untrusted checkout's config can't turn `exec` of a trusted command into code execution.
-- Config discovery stops at the checkout's top level, and on macOS and Linux refuses a config owned by another user
-  or writable by other users.
-- On Windows, `exec` no longer runs a bare command name from the current directory.
+- A config's `env` names must start with `WORKTREE_` (not `WORKTREE_PORTS`), so an untrusted checkout's config can
+  never set `PATH`, `NODE_OPTIONS`, `LD_PRELOAD`, `PS1` or any other variable that changes how a program loads code,
+  whether through `exec` or an `eval` of `env`. A server's own `PORT` comes from `exec --port`.
+- Config discovery stops at the checkout's top level (a submodule's, inside one). On macOS and Linux, a config found
+  outside any checkout is refused when it belongs to another user, or when other users could write it or its
+  directory; `--config` bypasses the check.
+- On Windows, `exec` looks commands up on `PATH` itself, skipping relative entries, and spawns the path it found, so a
+  checkout can't plant `npm.cmd` or `node.exe` in the current directory.
 
 ### Added
 

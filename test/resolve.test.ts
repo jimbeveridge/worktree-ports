@@ -20,7 +20,12 @@ import { testStateDir } from './setup.ts'
 
 const CONFIG = {
   services: { api: { offset: 0, default: 8080 }, web: { offset: 1, default: 3000 } },
-  env: { PORT: '{api}', ORIGIN: 'http://localhost:{web}', ROOT: '{root}', TOKEN: '{home}/.tool/token-{name}.json' },
+  env: {
+    WORKTREE_API_PORT: '{api}',
+    WORKTREE_ORIGIN: 'http://localhost:{web}',
+    WORKTREE_ROOT: '{root}',
+    WORKTREE_TOKEN: '{home}/.tool/token-{name}.json',
+  },
   verify: { url: 'http://localhost:{api}/health', field: 'root', expect: '{root}' },
 }
 
@@ -70,10 +75,10 @@ test('a linked worktree gets its claimed block, rendered env and verify, and git
   assert.equal(r.claim.size, 10)
   assert.deepEqual(r.ports, { api: r.claim.base + 0, web: r.claim.base + 1 })
   assert.deepEqual(r.env, {
-    PORT: String(r.claim.base),
-    ORIGIN: `http://localhost:${r.claim.base + 1}`,
-    ROOT: wt,
-    TOKEN: '/home/me/.tool/token-feat.json',
+    WORKTREE_API_PORT: String(r.claim.base),
+    WORKTREE_ORIGIN: `http://localhost:${r.claim.base + 1}`,
+    WORKTREE_ROOT: wt,
+    WORKTREE_TOKEN: '/home/me/.tool/token-feat.json',
   })
   assert.deepEqual(r.verify, { url: `http://localhost:${r.claim.base}/health`, field: 'root', expect: wt })
   assert.equal(basename(r.claim.gitDir), 'feat')
@@ -91,7 +96,7 @@ test('the main checkout gets the defaults, no claim and name "main"', async (t) 
   assert.equal(r.name, 'main')
   assert.equal(r.root, repo.main)
   assert.deepEqual(r.ports, { api: 8080, web: 3000 })
-  assert.equal(r.env.TOKEN, '/home/me/.tool/token-main.json')
+  assert.equal(r.env.WORKTREE_TOKEN, '/home/me/.tool/token-main.json')
   assert.deepEqual(r.verify, { url: 'http://localhost:8080/health', field: 'root', expect: repo.main })
   assert.deepEqual(claimFiles(registry), [])
 })
@@ -106,7 +111,7 @@ test('no git: defaults, root is the config dir, name "main"', async (t) => {
   assert.equal(r.root, dir)
   assert.equal(r.name, 'main')
   assert.deepEqual(r.ports, { api: 8080, web: 3000 })
-  assert.equal(r.env.ROOT, dir)
+  assert.equal(r.env.WORKTREE_ROOT, dir)
 })
 
 test('CI leaves the registry dir empty', async (t) => {

@@ -8,6 +8,9 @@ const files = new Set([
   'C:\\app\\node_modules\\.bin\\vite.cmd',
   'C:\\app\\tools\\build.bat',
   'C:\\app\\local.cmd',
+  // Planted in the checkout: a bare `node` or `npm` must never pick these up.
+  'C:\\app\\node.exe',
+  'C:\\app\\npm.cmd',
 ])
 const win = (env: Record<string, string> = {}): PlanOptions => ({
   platform: 'win32',
@@ -36,8 +39,9 @@ test('resolveWindowsCommand searches PATH with PATHEXT, ignoring env-name case',
 })
 
 test('planSpawn spawns a Windows .exe, or an unknown command, without a shell', () => {
+  // The resolved path, not the bare name: Windows would search the current directory first.
   assert.deepEqual(planSpawn(['node', '-e', 'x y'], win()), {
-    file: 'node',
+    file: 'C:\\Program Files\\nodejs\\node.exe',
     args: ['-e', 'x y'],
     windowsVerbatimArguments: false,
   })
@@ -48,16 +52,24 @@ test('planSpawn spawns a Windows .exe, or an unknown command, without a shell', 
 test('planSpawn runs a Windows .cmd through cmd.exe with every argument escaped', () => {
   assert.deepEqual(planSpawn(['npm', 'run', 'dev'], win({ ComSpec: 'C:\\Windows\\system32\\cmd.exe' })), {
     file: 'C:\\Windows\\system32\\cmd.exe',
-    args: ['/d', '/s', '/c', '"npm ^"run^" ^"dev^""'],
+    args: ['/d', '/s', '/c', '"C:\\Program^ Files\\nodejs\\npm.cmd ^"run^" ^"dev^""'],
     windowsVerbatimArguments: true,
   })
   // Quotes, trailing backslashes and cmd metacharacters (& % space) arrive literally; ComSpec defaults to cmd.exe.
   const plan = planSpawn(['build', 'a "b"', 'c\\', '50% & x'], win({ Path: 'C:\\app\\tools' }))
   assert.equal(plan.file, 'cmd.exe')
-  assert.equal(plan.args[3], '"build ^"a^ \\^"b\\^"^" ^"c\\\\^" ^"50^%^ ^&^ x^""')
+  assert.equal(plan.args[3], '"C:\\app\\tools\\build.bat ^"a^ \\^"b\\^"^" ^"c\\\\^" ^"50^%^ ^&^ x^""')
 })
 
 test('planSpawn escapes twice for a node_modules/.bin shim', () => {
   const plan = planSpawn(['vite', '--host', 'a&b'], win())
-  assert.equal(plan.args[3], '"vite ^^^"--host^^^" ^^^"a^^^&b^^^""')
+  assert.equal(plan.args[3], '"C:\\app\\node_modules\\.bin\\vite.cmd ^^^"--host^^^" ^^^"a^^^&b^^^""')
+})
+
+test('resolveWindowsCommand skips relative PATH entries, which would search the current directory', () => {
+  assert.equal(resolveWindowsCommand('local', win({ Path: '.;tools;C:\\Program Files\\nodejs' })), undefined)
+  assert.equal(
+    resolveWindowsCommand('npm', win({ Path: '.;C:\\Program Files\\nodejs' })),
+    'C:\\Program Files\\nodejs\\npm.cmd',
+  )
 })

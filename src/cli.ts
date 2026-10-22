@@ -413,10 +413,8 @@ async function dispatch(args: ParsedArgs, io: CliIo): Promise<number> {
   if (args.command === 'env') {
     const port = portRequest(resolved, args, io)
     if (port === 1) return 1
-    for (const [key, value] of Object.entries(resolved.env)) {
-      if (port && key === 'PORT') continue
-      io.stdout(`export ${key}=${shellQuote(value)}`)
-    }
+    // A config can't render PORT (its env names start with WORKTREE_), so --port's lines never repeat one.
+    for (const [key, value] of Object.entries(resolved.env)) io.stdout(`export ${key}=${shellQuote(value)}`)
     if (port) {
       io.stdout(`export PORT=${shellQuote(String(port.port))}`)
       io.stdout(`export ${PORT_MARKER}=${shellQuote(String(port.port))}`)

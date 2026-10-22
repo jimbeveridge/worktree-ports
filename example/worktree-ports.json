@@ -5,7 +5,7 @@
     "frontend": { "offset": 1, "default": 4000 }
   },
   "env": {
-    "BACKEND_ORIGIN": "http://127.0.0.1:{backend}",
+    "WORKTREE_BACKEND_ORIGIN": "http://127.0.0.1:{backend}",
     "WORKTREE_ROOT": "{root}"
   },
   "verify": {

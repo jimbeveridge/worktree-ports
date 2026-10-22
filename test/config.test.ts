@@ -12,12 +12,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
+
+const POSIX_ONLY = process.platform === 'win32' ? 'POSIX ownership and modes' : false
 import { join } from 'node:path'
 import {
   CONFIG_FILE_NAME,
   ConfigError,
   ENV_NAME,
-  RESERVED_ENV_NAME,
   assertDefaultsOutsideRange,
   blockSize,
   findConfig,
@@ -35,9 +36,8 @@ const example = {
   },
   mainCheckout: 'default',
   env: {
-    API_ADDR: '127.0.0.1:{api}',
-    PORT: '{web}',
-    API_ORIGIN: 'http://127.0.0.1:{api}',
+    WORKTREE_API_ADDR: '127.0.0.1:{api}',
+    WORKTREE_API_ORIGIN: 'http://127.0.0.1:{api}',
     WORKTREE_ROOT: '{root}',
   },
   verify: { url: 'http://127.0.0.1:{api}/__worktree', field: 'worktreeRoot', expect: '{root}' },
@@ -53,7 +53,7 @@ test('parseConfig accepts the spec example verbatim', () => {
   const c = parseConfig(example)
   assert.deepEqual(c.services, { api: { offset: 0, default: 8080 }, web: { offset: 1, default: 3000 } })
   assert.equal(c.mainCheckout, 'default')
-  assert.equal(c.env.PORT, '{web}')
+  assert.equal(c.env.WORKTREE_API_ORIGIN, 'http://127.0.0.1:{api}')
   assert.deepEqual(c.verify, { url: 'http://127.0.0.1:{api}/__worktree', field: 'worktreeRoot', expect: '{root}' })
 })
 
@@ -87,35 +87,33 @@ const rejects: Array<[string, unknown, RegExp]> = [
     withServices({ api: { offset: 0, default: 8080, mainPort: 8080 } }),
     /unknown field "services\.api\.mainPort"/,
   ],
-  ['an unknown env token', { ...minimal, env: { X: '{nope}' } }, /env\.X uses unknown token \{nope\}/],
+  [
+    'an unknown env token',
+    { ...minimal, env: { WORKTREE_X: '{nope}' } },
+    /env\.WORKTREE_X uses unknown token \{nope\}/,
+  ],
   ['an unknown verify token', { ...minimal, verify: { url: '{nope}', field: 'f', expect: '{root}' } }, /verify\.url/],
   ['a bad service name', withServices({ '9api': { offset: 0, default: 8080 } }), /service name "9api"/],
-  ['an env name with shell code', { ...minimal, env: { 'X=1; echo PWNED #': 'v' } }, /env name "X=1; echo PWNED #"/],
-  ['an env name with a dash', { ...minimal, env: { 'MY-VAR': '{root}' } }, /env name "MY-VAR" must match/],
-  ['an env name starting with a digit', { ...minimal, env: { '1PORT': '{root}' } }, /env name "1PORT"/],
+  [
+    'an env name with shell code',
+    { ...minimal, env: { 'WORKTREE_X=1; echo PWNED #': 'v' } },
+    /env name "WORKTREE_X=1; echo PWNED #"/,
+  ],
+  [
+    'an env name without the WORKTREE_ prefix',
+    { ...minimal, env: { API_ORIGIN: '{root}' } },
+    /env name "API_ORIGIN" must start with WORKTREE_/,
+  ],
   [
     'NODE_OPTIONS in env',
     { ...minimal, env: { NODE_OPTIONS: '--require ./x.js' } },
-    /env name "NODE_OPTIONS" is not allowed/,
+    /env name "NODE_OPTIONS" must start with WORKTREE_/,
   ],
-  ['PATH in env, in any case', { ...minimal, env: { Path: '{root}' } }, /env name "Path" is not allowed/],
-  [
-    'an LD_ variable in env',
-    { ...minimal, env: { LD_PRELOAD: '{root}/x.so' } },
-    /env name "LD_PRELOAD" is not allowed/,
-  ],
-  [
-    'a DYLD_ variable in env',
-    { ...minimal, env: { DYLD_INSERT_LIBRARIES: 'x' } },
-    /"DYLD_INSERT_LIBRARIES" is not allowed/,
-  ],
-  ['a GIT_ variable in env', { ...minimal, env: { GIT_SSH_COMMAND: 'x' } }, /"GIT_SSH_COMMAND" is not allowed/],
-  ['PYTHONPATH in env', { ...minimal, env: { PYTHONPATH: '{root}' } }, /"PYTHONPATH" is not allowed/],
-  [
-    "the tool's own variables in env",
-    { ...minimal, env: { WORKTREE_PORTS: 'off' } },
-    /"WORKTREE_PORTS" is not allowed/,
-  ],
+  ['PORT in env', { ...minimal, env: { PORT: '{api}' } }, /env name "PORT".*exec --port/],
+  ['a lower-case prefix', { ...minimal, env: { worktree_root: '{root}' } }, /env name "worktree_root"/],
+  ['the bare prefix', { ...minimal, env: { WORKTREE_: '{root}' } }, /env name "WORKTREE_"/],
+  ["the tool's own WORKTREE_PORTS names", { ...minimal, env: { WORKTREE_PORTS: 'off' } }, /env name "WORKTREE_PORTS"/],
+  ['a WORKTREE_PORTS_ name', { ...minimal, env: { WORKTREE_PORTS_ACTIVE: '0' } }, /env name "WORKTREE_PORTS_ACTIVE"/],
   ['a reserved service name', withServices({ root: { offset: 0, default: 8080 } }), /"root" is reserved/],
   ['no services', { services: {} }, /services must be an object/],
   ['a non-object', [], /expected a JSON object/],
@@ -181,7 +179,7 @@ test('findConfig stops at the git worktree top-level', (t) => {
   assert.equal(findConfig(join(repo, 'src')), join(repo, CONFIG_FILE_NAME))
 })
 
-test('findConfig refuses a world-writable config', { skip: process.platform === 'win32' }, (t) => {
+test('findConfig outside a checkout refuses a config writable by other users', { skip: POSIX_ONLY }, (t) => {
   const root = scratch()
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const file = join(root, CONFIG_FILE_NAME)
@@ -189,8 +187,59 @@ test('findConfig refuses a world-writable config', { skip: process.platform === 
   chmodSync(file, 0o666)
   assert.throws(
     () => findConfig(root),
-    (err: Error) => err instanceof ConfigError && /writable by other users/.test(err.message),
+    (err: Error) => err instanceof ConfigError && /writable by other users.*--config/.test(err.message),
   )
+  // Group-writable is fine: many systems create files that way for a user's private group.
+  chmodSync(file, 0o664)
+  assert.equal(findConfig(root), file)
+})
+
+test(
+  'findConfig outside a checkout refuses a directory others can write, unless it is sticky',
+  { skip: POSIX_ONLY },
+  (t) => {
+    const root = scratch()
+    t.after(() => rmSync(root, { recursive: true, force: true }))
+    const dir = join(root, 'shared')
+    mkdirSync(dir)
+    writeFileSync(join(dir, CONFIG_FILE_NAME), JSON.stringify(minimal))
+    chmodSync(dir, 0o777)
+    assert.throws(() => findConfig(dir), /could replace it/)
+    chmodSync(dir, 0o1777) // like /tmp: others can't replace a file they don't own
+    assert.equal(findConfig(dir), join(dir, CONFIG_FILE_NAME))
+  },
+)
+
+test('findConfig outside a checkout refuses a config owned by another user', { skip: POSIX_ONLY }, (t) => {
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, CONFIG_FILE_NAME), JSON.stringify(minimal))
+  const uid = process.getuid!()
+  let fake = uid + 1
+  t.mock.method(process as { getuid(): number }, 'getuid', () => fake)
+  assert.throws(() => findConfig(root), /owned by another user.*--config/)
+  // Under sudo the process is root, and SUDO_UID names the invoking user, who owns the file.
+  fake = 0
+  const before = process.env.SUDO_UID
+  t.after(() => {
+    if (before === undefined) delete process.env.SUDO_UID
+    else process.env.SUDO_UID = before
+  })
+  process.env.SUDO_UID = String(uid)
+  assert.equal(findConfig(root), join(root, CONFIG_FILE_NAME))
+})
+
+test('findConfig inside a checkout skips the ownership check', { skip: POSIX_ONLY }, (t) => {
+  const root = scratch()
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, '.git'))
+  mkdirSync(join(root, 'src'))
+  const file = join(root, 'src', CONFIG_FILE_NAME)
+  writeFileSync(file, JSON.stringify(minimal))
+  chmodSync(file, 0o666) // as on a Windows drive mounted in WSL
+  const uid = process.getuid!()
+  t.mock.method(process as { getuid(): number }, 'getuid', () => uid + 1)
+  assert.equal(findConfig(join(root, 'src')), file)
 })
 
 test('findConfig resolves symlinks', (t) => {
@@ -244,21 +293,11 @@ test("schema.json's properties match the fields parseConfig accepts", () => {
   assert.throws(() => parseConfig({ ...example, extra: 1 }), ConfigError)
   // The schema's env name pattern is the parser's.
   assert.equal(schema.properties.env.propertyNames.pattern, ENV_NAME.source)
-  parseConfig({ ...example, env: { _A1: '{root}' } })
-  // ...and so is its list of names a config may not set.
-  assert.equal(schema.properties.env.propertyNames.not.pattern, RESERVED_ENV_NAME.source)
+  parseConfig({ ...example, env: { WORKTREE_A1: '{root}' } })
 })
 
-test('parseConfig accepts ordinary names near the reserved ones', () => {
-  for (const key of [
-    'PORT',
-    'API_PATH',
-    'NODE_ENV_NAME',
-    'PYTHON_API_URL',
-    'MY_LD_HOST',
-    'WORKTREE_ROOT',
-    'HOMEPAGE_URL',
-  ]) {
+test('parseConfig accepts WORKTREE_ names, including ones close to the reserved prefix', () => {
+  for (const key of ['WORKTREE_ROOT', 'WORKTREE_API_ORIGIN', 'WORKTREE_PORT', 'WORKTREE_PORTAL_URL', 'WORKTREE_9']) {
     parseConfig({ ...minimal, env: { [key]: '{root}' } })
   }
 })

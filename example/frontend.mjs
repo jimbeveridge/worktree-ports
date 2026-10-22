@@ -2,7 +2,7 @@
 import { createServer, request } from 'node:http'
 
 const port = Number(process.env.PORT)
-const origin = new URL(process.env.BACKEND_ORIGIN ?? 'http://127.0.0.1:4100')
+const origin = new URL(process.env.WORKTREE_BACKEND_ORIGIN ?? 'http://127.0.0.1:4100')
 const worktreeRoot = process.env.WORKTREE_ROOT ?? ''
 
 if (!Number.isInteger(port)) {

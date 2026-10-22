@@ -122,8 +122,13 @@ Search from the current directory upward for `worktree-ports.json`; the
 nearest one wins. The search stops at the first directory holding `.git` (a
 checkout's top level, where `.git` is a directory or, in a linked worktree, a
 file), so a config above a repository never applies to it. Outside git it goes
-on to the filesystem root. On POSIX, a config owned by another user or writable
-by other users is an error, as git refuses a repository of dubious ownership.
+on to the filesystem root. A config found outside any checkout is checked as
+git checks a repository's ownership: on POSIX it must belong to this user (or
+root, or under `sudo` to `SUDO_UID`), and neither it nor its directory may be
+writable by other users unless the directory is sticky, as `/tmp` is. Inside a
+checkout the config is part of a repository the user already chose to work in,
+so it isn't checked; that keeps WSL's `/mnt/c` (where files show as 0777),
+containers running as root and shared mounts working.
 `--config <path>` overrides the search. Git is not needed to find the config,
 which is what makes the no-git context work. In a monorepo the usual layout is one file at the root; a
 sub-project may carry its own. Each config file in a worktree gets its own
@@ -140,8 +145,8 @@ claim (§7b), so two sub-projects never share a block.
   },
   "mainCheckout": "default",
   "env": {
-    "API_ADDR": "127.0.0.1:{api}",
-    "API_ORIGIN": "http://127.0.0.1:{api}",
+    "WORKTREE_API_ADDR": "127.0.0.1:{api}",
+    "WORKTREE_API_ORIGIN": "http://127.0.0.1:{api}",
     "WORKTREE_ROOT": "{root}"
   },
   "verify": {
@@ -157,7 +162,7 @@ claim (§7b), so two sub-projects never share a block.
 | `services.<name>.offset`            | Required integer ≥ 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                                                                |
 | `services.<name>.default`           | **Required** port 1–65535. Used by every context that doesn't claim (§5). Must fall outside the user's claim range, so a claimed block can never hand out another project's default. That's checked at load time against the effective range; a clash is an error naming both. |
 | `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                                                        |
-| `env`                               | Optional map of variable name → template (§5 tokens). Names that pick what code a program loads or runs, or that control this tool, are rejected (decision 6).                                                                                                                 |
+| `env`                               | Optional map of variable name → template (§5 tokens). Names must start with `WORKTREE_` (not `WORKTREE_PORTS`) and use `A-Z`, `0-9` and `_` (decision 6).                                                                                                                      |
 | `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See §8.                                                                                               |
 | `$schema`                           | Optional; ignored. A JSON Schema ships in the package for editor completion.                                                                                                                                                                                                   |
 
@@ -411,15 +416,13 @@ are the commands a project puts in its own launch scripts (an npm script, a
 `Makefile` target); `worktree-ports.json` doesn't change.
 
 - The flag adds to the rendered `env` map; it never replaces it. The frontend
-  above still receives `API_ORIGIN` and every other rendered variable.
+  above still receives `WORKTREE_API_ORIGIN` and every other rendered variable.
 - It always sets the variable named `PORT`. A server whose own port variable
   has another name keeps getting it from `env`, which is safe as long as only
   that server reads the name.
 - The value is the service's resolved port in the current context (§5): the
   claimed block's port in a linked worktree, the `default` in the main
   checkout and CI.
-- If the config's `env` also renders `PORT`, the flag's value is used for this
-  child instead.
 - An unknown service name exits 1, naming the declared services.
 - With `WORKTREE_PORTS=off`, or no config found, `exec` adds nothing, `PORT`
   included.
@@ -446,14 +449,9 @@ variable beyond what `env` renders.
 
 `env --port <service>` prints `export PORT=…` and
 `export WORKTREE_PORTS_PORT=…` after the rendered lines, so an `exec --port`
-run later from that shell may replace them. If `env` also renders `PORT`,
-that line is left out, so `PORT` is printed once.
-
-A `PORT` that an outer `exec` rendered from `env` (no `--port`) carries no
-marker, so an inner `exec --port` keeps it with a warning. That is the failure
-this flag exists to fix, left in place for configs that still put `PORT` in
-`env`; decision 3 steers `PORT` out of `env` instead. Such configs stay valid,
-with no new warning and no schema change.
+run later from that shell may replace them. A config can't render `PORT`
+itself, since its `env` names start with `WORKTREE_` (decision 6), so `--port`
+is the only way to set it.
 
 `--port` is a CLI feature: `resolvePorts` and `mergeEnv` keep their
 signatures, and the README's integration checklist recommends `--port` in
@@ -484,10 +482,10 @@ manages, then the command:
 ```console
 $ npx worktree-ports exec -v --port web -- next dev
 worktree-ports: app-feat (linked worktree): api=27420 web=27421
-worktree-ports:   set      API_ORIGIN=http://127.0.0.1:27420
+worktree-ports:   set      WORKTREE_API_ORIGIN=http://127.0.0.1:27420
 worktree-ports:   set      WORKTREE_ROOT=/home/me/src/app-feat
 worktree-ports:   replaced PORT=27421 (--port web; was 27420 from an outer exec)
-worktree-ports:   kept     API_ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:27420)
+worktree-ports:   kept     WORKTREE_API_ADDR=127.0.0.1:9000 (this checkout would use 127.0.0.1:27420)
 worktree-ports: running: next dev
 ```
 
@@ -517,8 +515,8 @@ worktree-ports: running: next dev
   handling differs: there's no `SIGTERM` to forward, and Ctrl-C reaches the
   whole console group anyway, so the child exits and the wrapper reports its
   code. Signal tests are skipped on Windows; the README says so. `exec` finds
-  the command through `PATH` and `PATHEXT`, never the current directory for a
-  bare name (decision 8); a `.cmd`/`.bat` (`npm`, `npx`,
+  the command through `PATH` (absolute entries only) and `PATHEXT` and spawns
+  the path it found, never a bare name (decision 8); a `.cmd`/`.bat` (`npm`, `npx`,
   `node_modules/.bin` shims) runs through `cmd.exe /d /s /c` with its
   arguments escaped for cmd, since Node won't spawn those without a shell.
 
@@ -646,7 +644,7 @@ example/
   Each server is under ~60 lines.
 - **`worktree-ports.json`:** services `backend` (offset 0, default 4100) and
   `frontend` (offset 1, default 4000). Env:
-  `BACKEND_ORIGIN=http://127.0.0.1:{backend}`, `WORKTREE_ROOT={root}`. Neither
+  `WORKTREE_BACKEND_ORIGIN=http://127.0.0.1:{backend}`, `WORKTREE_ROOT={root}`. Neither
   server's own port is in `env`; both come from `--port` (§8a). A
   `verify` block points at the backend's `/__worktree`, field `worktreeRoot`.
 - **`backend.mjs`:** listens on `127.0.0.1:$PORT`. It serves
@@ -654,7 +652,7 @@ example/
   the socket's peer is a loopback address, and 404 otherwise (§10), and
   `/api/hello` → the worktree root and its own port.
 - **`frontend.mjs`:** listens on `127.0.0.1:$PORT`, proxies `/api/*` to
-  `$BACKEND_ORIGIN`, and serves one HTML page. The page shows the worktree the
+  `$WORKTREE_BACKEND_ORIGIN`, and serves one HTML page. The page shows the worktree the
   frontend runs in next to the one the backend reports, highlighting any
   mismatch. That makes the problem the tool solves visible.
 - **Scripts:**
@@ -804,21 +802,25 @@ All examples use generic project names, paths and variables.
    renders, such as `WORKTREE_ROOT`, fails when a person sets it by hand, as
    the README's refusal test does: the launcher skips `exec` and falls back to
    the default ports. A usability test hit exactly that.
-6. **A config may not set names that control code loading (§6b).** `exec`
-   hands `env` to the child, so a config from an untrusted checkout could set
-   `NODE_OPTIONS`, `LD_PRELOAD`, `PATH` or the like and turn `exec` of a
-   trusted command into code execution. The parser rejects a fixed list,
-   case-insensitively: `PATH`, `PATHEXT`, `COMSPEC`, `HOME`, `USERPROFILE`,
-   shell start-up variables, executables (`EDITOR`, `PAGER`, `BROWSER`, the
-   askpass helpers, `LESSOPEN`), language loaders (`NODE_OPTIONS`, `NODE_PATH`,
-   Perl, Ruby, Java, `PYTHON*`), and the `LD_`, `DYLD_`, `GIT_`, `NPM_CONFIG_`
-   and `WORKTREE_PORTS` prefixes. A denylist, not an allowlist: configs
-   legitimately name origins, callback URLs and addresses freely, and the
-   checkout's own scripts can run code anyway. It closes the cases where the
-   command is trusted and only the config is not.
-7. **Config discovery stops at the checkout and checks ownership (§6a).** An
-   unbounded upward search let a config in a parent directory, possibly
-   another user's, apply to every repository below it.
-8. **`exec` never runs a bare command from the current directory on Windows
-   (§9).** cmd.exe searches it first, so a checkout could plant `npm.cmd`.
-   `.\tool` still runs one from there.
+6. **`env` names must start with `WORKTREE_` (§6b).** `exec` hands `env` to
+   the child, and `env` is meant to be evaluated in the user's shell, so a
+   config from an untrusted checkout that could set `NODE_OPTIONS`,
+   `LD_PRELOAD`, `PATH`, `PS1`, `XDG_CONFIG_HOME` and the like would turn
+   either into code execution. No runtime, shell or tool gives a `WORKTREE_`
+   name a meaning of its own, so the prefix closes that whole class with no
+   list to maintain; a denylist tried first kept missing names (each review
+   found more) while blocking legitimate ones. `WORKTREE_PORTS…` stays the
+   tool's own, and `PORT` comes from `exec --port`. The cost is that servers
+   read prefixed names, a one-line change in code the user owns; values that
+   must reach browser code under a framework's prefix (`VITE_*`,
+   `NEXT_PUBLIC_*`) are mapped in the framework's config file.
+7. **Config discovery stops at the checkout, and checks ownership outside it
+   (§6a).** An unbounded upward search let a config in a parent directory,
+   possibly another user's, apply to every repository below it. Inside a
+   checkout an ownership check adds nothing and breaks WSL, root containers
+   and shared mounts, so it applies only outside one.
+8. **On Windows `exec` spawns the resolved path, never a bare name (§9).**
+   Both CreateProcess and cmd.exe search the current directory first, so a
+   checkout could plant `npm.cmd` or `node.exe`. `exec` looks the command up
+   on `PATH` itself, skipping relative entries such as `.`, and runs the path
+   it found; `.\tool` still runs one from the current directory.

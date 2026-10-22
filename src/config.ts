@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync, type Stats } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pathExists } from './git.ts'
 import type { PortRange } from './settings.ts'
@@ -39,15 +39,13 @@ export class ConfigError extends Error {
 
 const SERVICE_NAME = /^[A-Za-z][A-Za-z0-9_-]*$/
 /** A POSIX shell variable name; schema.json's `env.propertyNames` uses the same pattern. */
-export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
-
 /**
- * Names a config's `env` may not set, matched case-insensitively (Windows env names are). Each one picks code a child
- * loads, an executable it runs, or this tool's own behaviour, so a config from an untrusted checkout could otherwise
- * turn `exec` of a trusted command into code execution. Best-effort: it covers the common loaders, not every one.
+ * A config's `env` names must start with `WORKTREE_`. No runtime, shell or tool gives such a name a meaning of its
+ * own, so a config from an untrusted checkout can't set `NODE_OPTIONS`, `LD_PRELOAD`, `PATH`, `PS1` or the like and
+ * turn `exec`, or an `eval` of `env`, into code execution. `WORKTREE_PORTS…` is the tool's own and stays reserved.
+ * `PORT` comes from `exec --port` instead.
  */
-export const RESERVED_ENV_NAME =
-  /^(PATH|PATHEXT|COMSPEC|HOME|USERPROFILE|IFS|ENV|BASH_ENV|BASHOPTS|SHELLOPTS|PROMPT_COMMAND|PS4|EDITOR|VISUAL|PAGER|BROWSER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|PYTHON[A-Z]*|LD_[A-Z0-9_]*|DYLD_[A-Z0-9_]*|GIT_[A-Z0-9_]*|NPM_CONFIG_[A-Z0-9_]*|WORKTREE_PORTS[A-Z0-9_]*)$/i
+export const ENV_NAME = /^WORKTREE_(?!PORTS)[A-Z0-9_]+$/
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -136,11 +134,9 @@ export function parseConfig(raw: unknown, source: string = CONFIG_FILE_NAME): Wo
     for (const [key, value] of Object.entries(raw.env)) {
       // `env` prints `export KEY=...` for `eval`, so a key must be a plain shell variable name.
       if (!ENV_NAME.test(key)) {
-        throw new ConfigError(`${source}: env name "${key}" must match ${ENV_NAME}`)
-      }
-      if (RESERVED_ENV_NAME.test(key)) {
+        const hint = key === 'PORT' ? '; set PORT with `exec --port <service>`' : ''
         throw new ConfigError(
-          `${source}: env name "${key}" is not allowed: it controls what code a program loads or runs, or this tool itself`,
+          `${source}: env name "${key}" must start with WORKTREE_ (not WORKTREE_PORTS) and use only A-Z, 0-9 and _${hint}`,
         )
       }
       if (typeof value !== 'string') throw new ConfigError(`${source}: env.${key} must be a string`)
@@ -184,17 +180,18 @@ export function loadConfig(path: string): WorktreePortsConfig {
 /**
  * Nearest `worktree-ports.json` from `cwd` upward. Absolute and symlink-resolved. The search stops at the first
  * directory holding `.git` (a checkout's top level), so a config above a repository never applies to it; outside git
- * it goes on to the filesystem root. On POSIX a config owned by another user, or writable by other users, is an
- * error rather than a match, as git refuses a repository of dubious ownership.
+ * it goes on to the filesystem root. A config outside any checkout is checked as git checks a repository's ownership:
+ * on POSIX it must belong to this user (or root), and neither it nor its directory may be writable by other users.
+ * Inside a checkout the config is part of a repository the user already chose to work in, so it isn't checked.
  */
 export function findConfig(cwd: string = process.cwd()): string | undefined {
   let dir = realpathSync(resolve(cwd))
   for (;;) {
     const candidate = join(dir, CONFIG_FILE_NAME)
-    const stat = statSync(candidate, { throwIfNoEntry: false })
-    if (stat?.isFile()) {
-      assertTrusted(candidate, stat)
-      return realpathSync(candidate)
+    if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) {
+      const path = realpathSync(candidate)
+      if (!insideCheckout(dir)) assertTrusted(path)
+      return path
     }
     // pathExists counts an unreadable .git as present, so an undecidable boundary stops the search.
     if (pathExists(join(dir, '.git'))) return undefined
@@ -204,13 +201,37 @@ export function findConfig(cwd: string = process.cwd()): string | undefined {
   }
 }
 
-function assertTrusted(path: string, stat: Stats): void {
-  if (process.platform === 'win32' || process.getuid === undefined) return
-  if (stat.uid !== process.getuid()) {
-    throw new ConfigError(`${path} is owned by another user; refusing to use it`)
+/** Whether `dir` or any directory above it holds `.git`. */
+function insideCheckout(dir: string): boolean {
+  for (;;) {
+    if (pathExists(join(dir, '.git'))) return true
+    const parent = dirname(dir)
+    if (parent === dir) return false
+    dir = parent
   }
-  if ((stat.mode & 0o002) !== 0) {
-    throw new ConfigError(`${path} is writable by other users; refusing to use it (chmod o-w fixes it)`)
+}
+
+/**
+ * Refuse a config another user could have written. Its directory counts too: someone who can write there could
+ * replace the file between this check and the read, unless the directory is sticky (as `/tmp` is).
+ */
+function assertTrusted(path: string): void {
+  if (process.platform === 'win32' || process.getuid === undefined) return
+  const uid = process.getuid()
+  // Under sudo the files are the invoking user's, whose uid sudo keeps in SUDO_UID.
+  const sudoUid = Number(process.env.SUDO_UID)
+  const trusted = (owner: number) => owner === uid || owner === 0 || (uid === 0 && owner === sudoUid)
+  const advice = 'pass --config <path> to use it anyway'
+  const file = statSync(path)
+  if (!trusted(file.uid)) throw new ConfigError(`${path} is owned by another user; refusing to use it (${advice})`)
+  if ((file.mode & 0o002) !== 0) {
+    throw new ConfigError(`${path} is writable by other users; refusing to use it (chmod o-w, or ${advice})`)
+  }
+  const parent = statSync(dirname(path))
+  if ((parent.mode & 0o002) !== 0 && (parent.mode & 0o1000) === 0) {
+    throw new ConfigError(
+      `${path} is in a directory other users can write, so they could replace it; refusing to use it (${advice})`,
+    )
   }
 }
 

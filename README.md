@@ -40,8 +40,8 @@ Describe your servers in `worktree-ports.json` at the root of your project's rep
     "web": { "offset": 1, "default": 3000 }
   },
   "env": {
-    "API_ADDR": "127.0.0.1:{api}",
-    "API_ORIGIN": "http://127.0.0.1:{api}",
+    "WORKTREE_API_ADDR": "127.0.0.1:{api}",
+    "WORKTREE_API_ORIGIN": "http://127.0.0.1:{api}",
     "WORKTREE_ROOT": "{root}"
   }
 }
@@ -102,15 +102,16 @@ starting point.
       Set each `default` to the port it uses today, so the main checkout and CI keep running on it. Give each a distinct
       `offset`. See the [configuration reference](#configuration-reference).
 - [ ] **Render the derived values.** Add an `env` entry for each origin, proxy target, CORS origin, callback URL and
-      test base URL you found, built from `{service}` tokens. A value left hard-coded is the silent cross-checkout
-      failure described in [the problem](#the-problem).
-- [ ] **Choose how each server gets its own port.** Every process run under `exec` receives the whole `env` map, so
-      never put a generic name such as `PORT` in `env`: a backend that reads it would bind to the frontend's port. For a
-      server that reads `PORT` (Next.js and many other dev servers), start it with `exec --port <service>`, which sets
-      `PORT` for that process only. `PORT` carries no host, though, and many servers listen on all interfaces when given
-      only a port, which exposes them to your network and can trigger a firewall prompt. For a server that should stay
-      on loopback, or that has more than one listener (HTTP and gRPC, say), render a full address under a name only it
-      reads (`"API_ADDR": "127.0.0.1:{api}"`) and start it without `--port`.
+      test base URL you found, built from `{service}` tokens. Names must start with `WORKTREE_`
+      (`WORKTREE_API_ORIGIN`), so a config can never set a variable that changes how a program loads code. A value left
+      hard-coded is the silent cross-checkout failure described in [the problem](#the-problem).
+- [ ] **Choose how each server gets its own port.** Every process run under `exec` receives the whole `env` map, so a
+      server's own port must not come from a name another server also reads. For a server that reads `PORT` (Next.js and
+      many other dev servers), start it with `exec --port <service>`, which sets `PORT` for that process only. `PORT`
+      carries no host, though, and many servers listen on all interfaces when given only a port, which exposes them to
+      your network and can trigger a firewall prompt. For a server that should stay on loopback, or that has more than
+      one listener (HTTP and gRPC, say), render a full address under a name only it reads
+      (`"WORKTREE_API_ADDR": "127.0.0.1:{api}"`) and start it without `--port`.
 - [ ] **Make the servers read the environment.** Replace each hard-coded port or address with the variable the config
       names, or `PORT` for a server started with `--port`. A fallback in the source is optional, since the tool renders
       your `default`s outside worktrees, but keep it if the server is also started without the tool.
@@ -125,8 +126,8 @@ starting point.
       its `--port`.
 - [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
       port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
-      `export API_PORT=8080` with `export API_PORT="${API_PORT:-8080}"`. A `.env` loader that overrides the environment
-      (such as dotenv with `override: true`) beats the tool too.
+      `export WORKTREE_API_PORT=8080` with `export WORKTREE_API_PORT="${WORKTREE_API_PORT:-8080}"`. A `.env` loader that
+      overrides the environment (such as dotenv with `override: true`) beats the tool too.
 - [ ] **Optionally guard the backend.** Add a `/__worktree` route to the server others depend on, set `verify` in the
       config, and start the dependent server with `exec --verify`. The route must fail closed, answering only loopback
       requests when `WORKTREE_ROOT` is set and returning 404 otherwise; see
@@ -181,18 +182,20 @@ The full claim protocol (locking, the backstop scan, staleness rules) is in
 
 The tool looks for `worktree-ports.json` from the current directory upward, and the nearest one wins. The search stops
 at the checkout's top level (the first directory holding `.git`), so a config above a repository never applies to it;
-outside git it goes on to the filesystem root. On macOS and Linux, a config owned by another user or writable by other
-users is refused. `--config <path>` overrides the search. Git is not needed to find the config. In a monorepo the usual layout is
-one file at the root; a sub-project may carry its own, and each config file in a worktree gets its own claim.
+outside git it goes on to the filesystem root. On macOS and Linux, a config found outside any checkout is refused when
+it belongs to another user, or when other users could write it or its directory; inside a checkout it isn't checked,
+since it is part of a repository you chose to work in. `--config <path>` overrides the search and the check. Git is not
+needed to find the config. In a monorepo the usual layout is one file at the root; a sub-project may carry its own, and
+each config file in a worktree gets its own claim.
 
-| Field                               | Rule                                                                                                                                                                                                                                     |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `services.<name>.offset`            | Required integer >= 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                         |
-| `services.<name>.default`           | Required port 1-65535, used by every context that does not claim. It must lie outside the claim range, so a claimed block can never hand out another project's default. A clash is an error that names both.                             |
-| `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                  |
-| `env`                               | Optional map of variable name to template. Names that pick what code a program loads or runs are rejected: `PATH`, `HOME`, `NODE_OPTIONS`, `PYTHON*`, `LD_*`, `DYLD_*`, `GIT_*`, `NPM_CONFIG_*`, `WORKTREE_PORTS*` and similar.          |
-| `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See [`--verify`](#guarding-against-the-wrong-backend---verify). |
-| `$schema`                           | Optional and ignored. The package ships a JSON Schema for editor completion.                                                                                                                                                             |
+| Field                               | Rule                                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `services.<name>.offset`            | Required integer >= 0, unique per service. The service's port is the block base plus its offset.                                                                                                                                                                                           |
+| `services.<name>.default`           | Required port 1-65535, used by every context that does not claim. It must lie outside the claim range, so a claimed block can never hand out another project's default. A clash is an error that names both.                                                                               |
+| `mainCheckout`                      | `"default"` (the default) or `"claim"`.                                                                                                                                                                                                                                                    |
+| `env`                               | Optional map of variable name to template. Names must start with `WORKTREE_` (not `WORKTREE_PORTS`) and use `A-Z`, `0-9` and `_`, so a config can never set `PATH`, `NODE_OPTIONS` or anything else that changes how a program loads code. A server's own `PORT` comes from `exec --port`. |
+| `verify.url` / `.field` / `.expect` | Optional. Where `exec --verify` asks a running service who it belongs to, which JSON field holds the answer, and the value meaning "this checkout" (typically `{root}`). See [`--verify`](#guarding-against-the-wrong-backend---verify).                                                   |
+| `$schema`                           | Optional and ignored. The package ships a JSON Schema for editor completion.                                                                                                                                                                                                               |
 
 Unknown fields are an error, so typos surface at once.
 
@@ -246,18 +249,17 @@ worktree-ports --version | --help
 
   ```console
   $ npx worktree-ports env
-  export API_ADDR='127.0.0.1:27420'
-  export API_ORIGIN='http://127.0.0.1:27420'
+  export WORKTREE_API_ADDR='127.0.0.1:27420'
+  export WORKTREE_API_ORIGIN='http://127.0.0.1:27420'
   export WORKTREE_ROOT='/home/me/src/app-feat'
   ```
 
-  `env --port <service>` adds the two lines `exec --port` would set, after the rendered ones. If `env` also renders
-  `PORT`, that line is left out, so `PORT` is printed once.
+  `env --port <service>` adds the two lines `exec --port` would set, after the rendered ones.
 
   ```console
   $ npx worktree-ports env --port web
-  export API_ADDR='127.0.0.1:27420'
-  export API_ORIGIN='http://127.0.0.1:27420'
+  export WORKTREE_API_ADDR='127.0.0.1:27420'
+  export WORKTREE_API_ORIGIN='http://127.0.0.1:27420'
   export WORKTREE_ROOT='/home/me/src/app-feat'
   export PORT='27421'
   export WORKTREE_PORTS_PORT='27421'
@@ -273,7 +275,7 @@ worktree-ports --version | --help
 - **`exec --port <service> -- <command>`** also sets `PORT` to that service's port in the current context (the claimed
   port in a linked worktree, the `default` in the main checkout and CI), for this child only. It adds to the rendered
   `env`; it never replaces it. It always sets the variable named `PORT`; a server that reads another name keeps getting
-  it from `env`. If `env` also renders `PORT`, the flag's value is used for this child instead. An unknown service
+  it from `env`. An unknown service
   exits 1 and names the declared ones. With `WORKTREE_PORTS=off` or no config, nothing is added, `PORT` included.
 
   `exec` often runs inside `exec` without anyone planning it, such as a wrapped test script that starts a wrapped
@@ -291,8 +293,8 @@ worktree-ports --version | --help
   ```console
   $ npx worktree-ports exec -v --port web -- node -v
   worktree-ports: app-feat (linked worktree): api=27420 web=27421
-  worktree-ports:   set      API_ADDR=127.0.0.1:27420
-  worktree-ports:   set      API_ORIGIN=http://127.0.0.1:27420
+  worktree-ports:   set      WORKTREE_API_ADDR=127.0.0.1:27420
+  worktree-ports:   set      WORKTREE_API_ORIGIN=http://127.0.0.1:27420
   worktree-ports:   set      WORKTREE_ROOT=/home/me/src/app-feat
   worktree-ports:   set      PORT=27421 (--port web)
   worktree-ports:   set      WORKTREE_PORTS_PORT=27421
@@ -488,13 +490,15 @@ export default { server: { port: Number(process.env.PORT) || 5173, strictPort: t
 
 Prefer a config file over `sh -c 'vite --port "$PORT"'`, which fails on Windows, where npm scripts run under `cmd.exe`.
 
-Proxy targets read the other variables, for example `process.env.API_ORIGIN` in `vite.config.js`.
+Proxy targets read the other variables, for example `process.env.WORKTREE_API_ORIGIN` in `vite.config.js`, which runs
+on the server. Code that runs in the browser sees only the framework's own prefix (`VITE_*`, `NEXT_PUBLIC_*`), so map a
+value across in the framework's config file, for example Vite's `define` or Next.js's `env` setting.
 
 **A server in another language.** The config can render a full listen address, not only a port. This Go server listens
-on `API_ADDR`:
+on `WORKTREE_API_ADDR`:
 
 ```go
-log.Fatal(http.ListenAndServe(os.Getenv("API_ADDR"), nil))
+log.Fatal(http.ListenAndServe(os.Getenv("WORKTREE_API_ADDR"), nil))
 ```
 
 **A Makefile target:**
@@ -528,7 +532,7 @@ Everything the CLI does is available as a typed library:
 import { resolvePorts } from 'worktree-ports'
 
 const { ports, env, context } = await resolvePorts()
-console.log(context.reason, ports.api, env.API_ORIGIN)
+console.log(context.reason, ports.api, env.WORKTREE_API_ORIGIN)
 ```
 
 `resolvePorts(opts?)` finds the config, works out the context, claims or looks up the block, and renders `env` and
@@ -546,8 +550,9 @@ versioning from 1.0; 0.x releases may break it.
   atomic rename work there. Signal handling differs: there is no `SIGTERM` to forward, and Ctrl-C reaches the whole
   console group anyway, so the child exits and the wrapper reports its code. The signal tests are skipped on Windows.
   `exec` runs a `.cmd` or `.bat` command (`npm`, `npx`, anything in `node_modules/.bin`) through `cmd.exe`, with its
-  arguments escaped, since Node can't start those files directly. Unlike `cmd.exe`, it never runs a bare command name
-  from the current directory, so a checkout can't plant its own `npm.cmd`; write `.\tool` to run one from there.
+  arguments escaped, since Node can't start those files directly. It looks the command up on `PATH` itself (absolute
+  entries only) and runs the path it found, so a checkout can't plant its own `npm.cmd` or `node.exe`, which Windows
+  would otherwise find in the current directory first; write `.\tool` to run one from there.
 - No runtime dependencies.
 
 ## FAQ and limitations
@@ -561,13 +566,13 @@ so a port reported free can be taken a moment later.
 longer exists, or when it belongs to a linked worktree whose working directory has gone (the check `git worktree prune`
 itself makes). A claim is never collected while its worktree has a `locked` file (`git worktree lock`). A claim whose
 config file has gone but whose worktree remains is kept by the automatic pass, since a branch checkout can remove the
-file for a while; `prune` removes it. A claim that is merely old is kept too, because stable ports are the point. The tool
-only reads git's admin directory and never deletes it.
+file for a while; `prune` removes it. A claim that is merely old is kept too, because stable ports are the point. The
+tool only reads git's admin directory and never deletes it.
 
 **What happens when the range is full?** The claim fails with exit 1 and a message listing every claim, oldest first,
 suggesting `worktree-ports prune --unused-for 30d` and `worktree-ports release` (run in a worktree you are done with),
-and noting that the range can be widened in the settings file. Running out in practice means claims are leaking, not real
-demand.
+and noting that the range can be widened in the settings file. Running out in practice means claims are leaking, not
+real demand.
 
 **Unmounted drives.** A clone on an external or network drive that is unmounted when another claim runs looks deleted,
 so its claim is collected and it gets new ports on its next run. That is a one-time port change, never a collision.
@@ -579,15 +584,15 @@ Run `worktree-ports release` in that checkout and the next run claims a differen
 
 **Can I link checkouts of different repositories?** No. Blocks are per checkout, so a frontend in one repository cannot
 be told its partner backend's port in another repository's worktree. Set the partner's address by hand, for example
-`API_ORIGIN=http://127.0.0.1:27420`. `exec` never overwrites a variable that is already set, so the value you export
-wins over the config.
+`WORKTREE_API_ORIGIN=http://127.0.0.1:27420`. `exec` never overwrites a variable that is already set, so the value you
+export wins over the config.
 
 **After integrating, I get a firewall prompt (or a server is reachable from my network). What do I do?** `PORT` carries
 only a port, no host, and many servers given only a port listen on all interfaces, including your network address. That
 is what triggers the firewall prompt. Don't start that server with `--port`. Instead, render a full loopback address
-under a variable only that server reads, such as `"API_ADDR": "127.0.0.1:{api}"` in the config's `env`, and have the
-server listen on it. See the integration checklist's step on
-[choosing how each server gets its port](#integration-checklist).
+under a variable only that server reads, such as `"WORKTREE_API_ADDR": "127.0.0.1:{api}"` in the config's `env`, and
+have the server listen on it. See the integration checklist's step on [choosing how each server gets its
+port](#integration-checklist).
 
 **Docker Compose.** Host port mappings (`"8080:8080"`) are fixed, so two checkouts running `compose up` at once, or one
 running Compose while another runs native servers, collide on the host with "port is already allocated". Ports inside
