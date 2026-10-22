@@ -1,6 +1,27 @@
 {
   "name": "worktree-ports",
   "version": "0.1.0",
+  "description": "Give every git worktree its own stable block of local ports, so the dev servers of two checkouts never collide.",
+  "keywords": [
+    "git",
+    "worktree",
+    "git-worktree",
+    "ports",
+    "port",
+    "dev-server",
+    "monorepo",
+    "cli",
+    "env"
+  ],
+  "author": "Jim Beveridge",
+  "homepage": "https://github.com/jimbeveridge/worktree-ports#readme",
+  "bugs": {
+    "url": "https://github.com/jimbeveridge/worktree-ports/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jimbeveridge/worktree-ports.git"
+  },
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -13,7 +34,8 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -22,7 +44,6 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
-  "repository": "github:jimbeveridge/worktree-ports",
   "scripts": {
     "test": "node --test --import ./test/setup.ts \"test/*.test.ts\"",
     "test:e2e": "node --test --import ./test/setup.ts \"test/e2e/*.test.ts\"",

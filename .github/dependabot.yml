@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Keeps the workflow actions on supported majors (they once lagged onto a removed Node runtime).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
