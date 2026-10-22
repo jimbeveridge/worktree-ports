@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { planSpawn } from './command.ts'
 import { readMode } from './context.ts'
-import { buildChildEnv, PORT_MARKER, type PortRequest } from './env.ts'
+import { ACTIVE_MARKER, buildChildEnv, PORT_MARKER, type PortRequest } from './env.ts'
 import { openRegistry, parseDuration, type ListedClaim, type LockOptions, type Registry } from './registry/index.ts'
 import { NoConfigError, checkoutOwner, resolvePorts, type ResolvedPorts } from './resolve.ts'
 import { serviceStatus } from './status.ts'
@@ -129,8 +129,10 @@ function verboseUnchanged(args: ParsedArgs, why: string, io: CliIo): void {
   io.stderr(`${PREFIX} running: ${args.rest.map(quoteArg).join(' ')}`)
 }
 
-function spawnChild(argv: string[], env: Record<string, string | undefined>, io: CliIo): Promise<number> {
+function spawnChild(argv: string[], base: Record<string, string | undefined>, io: CliIo): Promise<number> {
   const cmd = argv[0]!
+  // Every exec path spawns through here, including WORKTREE_PORTS=off and no config, so the marker is always set.
+  const env = { ...base, [ACTIVE_MARKER]: '1' }
   // On Windows a `.cmd`/`.bat` (npm, npx, node_modules/.bin) is run through cmd.exe; see planSpawn.
   const plan = planSpawn(argv, { platform: process.platform, env, cwd: io.cwd })
   return new Promise((resolve) => {

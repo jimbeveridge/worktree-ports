@@ -356,6 +356,12 @@ worktree-ports --version | --help
     "force quit". The wrapper ignores `SIGINT` itself while the child runs,
     so it can still report the child's exit code.
   - With no config found, it warns and runs the command unchanged.
+  - It always sets `WORKTREE_PORTS_ACTIVE=1` in the child, replacing any
+    inherited value, even under `WORKTREE_PORTS=off` and with no config
+    found. A launcher that re-runs itself under `exec` tests it to avoid
+    recursing. It must be set on those paths too, or such a launcher would
+    loop forever when the tool is off. `env` never prints it, since a shell
+    that evaluated it would make every launcher skip `exec`.
 - **`exec --port <service>`** also sets `PORT` to that service's port, for
   this child only (§8a).
 - **`exec --verify`** first asks the server at `verify.url` who it belongs to:
@@ -482,9 +488,9 @@ worktree-ports: running: next dev
 
 - The variables listed are exactly those the tool manages: every key the
   config's `env` renders, plus `PORT` and `WORKTREE_PORTS_PORT` with
-  `--port`. The rest of the inherited environment is never printed. It
-  often holds tokens and keys, and this output gets pasted into issues and
-  chat.
+  `--port`. `WORKTREE_PORTS_ACTIVE` is not listed: it is always `1`. The
+  rest of the inherited environment is never printed. It often holds tokens
+  and keys, and this output gets pasted into issues and chat.
 - Each line says `set`, `replaced` (only `PORT` and `WORKTREE_PORTS_PORT`,
   under the §8a nesting rule) or `kept`. A kept line shows the value that
   won and the one this checkout would have used, even when they are equal.
@@ -787,3 +793,8 @@ All examples use generic project names, paths and variables.
 4. **`--verbose` prints only the variables the tool manages (§8b).** The
    merge outcome for those is what users debug; the rest of the inherited
    environment adds noise and can leak secrets into pasted output.
+5. **`exec` always sets `WORKTREE_PORTS_ACTIVE=1` (§8).** A self-re-running
+   launcher needs a guard that only `exec` sets. A variable the config
+   renders, such as `WORKTREE_ROOT`, fails when a person sets it by hand, as
+   the README's refusal test does: the launcher skips `exec` and falls back to
+   the default ports. A usability test hit exactly that.

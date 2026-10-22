@@ -117,9 +117,11 @@ starting point.
       e2e suites, seed scripts), with `worktree-ports exec --`, or `exec --port <service> --` for a server that reads
       `PORT`. On Windows, npm scripts run under `cmd.exe`, so pass ports through the server's config file rather than
       `sh -c` (see [wiring examples](#wiring-examples)). A launcher that re-runs itself under `exec` needs a guard
-      against recursing. Use a variable only the launcher sets, such as
-      `APP_WRAPPED=1 exec worktree-ports exec -- "$0" "$@"`, not one the config renders: the refusal test below sets
-      `WORKTREE_ROOT` by hand, and a launcher guarded on it would skip `exec` and fall back to the default ports.
+      against recursing: test `WORKTREE_PORTS_ACTIVE`, which `exec` always sets, not a variable the config renders. The
+      refusal test below sets `WORKTREE_ROOT` by hand, and a launcher guarded on it would skip `exec` and fall back
+      to the default ports. A launcher that starts its server with `--port` should use a variable of its own instead,
+      since under an outer `exec` (a wrapped test run, say) `WORKTREE_PORTS_ACTIVE` is already set and it would skip
+      its `--port`.
 - [ ] **If you run Docker Compose in worktrees, wrap it too.** Host ports in a Compose file (`"8080:8080"`) collide like
       any others. Render a port-only variable (`"API_PORT": "{api}"`), make the host side use it
       (`"${API_PORT:-8080}:8080"`), and run `worktree-ports exec -- docker compose up`. Skip this if Compose is not
@@ -267,7 +269,8 @@ worktree-ports --version | --help
   `SIGTERM` to the child. It does not forward `SIGINT`: Ctrl-C in a terminal already reaches the whole foreground
   process group, and a second delivery would break tools that treat a second Ctrl-C as "force quit". The wrapper ignores
   `SIGINT` itself while the child runs, so it can still report the child's exit code. With no config found, it warns and
-  runs the command unchanged.
+  runs the command unchanged. It always sets `WORKTREE_PORTS_ACTIVE=1` in the child, even then and under
+  `WORKTREE_PORTS=off`, so a launcher can tell it is already running under `exec`.
 - **`exec --port <service> -- <command>`** also sets `PORT` to that service's port in the current context (the claimed
   port in a linked worktree, the `default` in the main checkout and CI), for this child only. It adds to the rendered
   `env`; it never replaces it. It always sets the variable named `PORT`; a server that reads another name keeps getting
@@ -340,6 +343,7 @@ Exit codes:
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WORKTREE_PORTS`           | Overrides context detection. Unset or `auto`: the table above. `default`: use `default`s everywhere. `claim`: claim a block even in the main checkout or CI (needs git). `off`: `exec` runs the command with nothing added, and other commands report that the tool is off. |
 | `WORKTREE_PORTS_STATE_DIR` | Where the registry lives. See [Per-user settings](#per-user-settings).                                                                                                                                                                                                      |
+| `WORKTREE_PORTS_ACTIVE`    | Set to `1` by `exec` in every child, even when the tool is off or finds no config, so a launcher that re-runs itself under `exec` can avoid recursing. `env` never prints it.                                                                                               |
 | `WORKTREE_PORTS_PORT`      | Set by `exec --port` (and printed by `env --port`) to the value it gave `PORT`, so a nested `exec --port` can tell its own `PORT` from one you pinned. Don't set it yourself.                                                                                               |
 | `CI`                       | When set and not `""`, `0` or `false`, the tool uses `default`s and never writes the registry.                                                                                                                                                                              |
 

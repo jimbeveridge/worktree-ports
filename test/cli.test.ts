@@ -882,3 +882,34 @@ test('exec --port under WORKTREE_PORTS=off adds nothing', async (t) => {
   assert.equal(await run(['exec', '--port', 'web', ...dumpEnvArgs(file, 'PORT', 'WORKTREE_PORTS_PORT')], io), 0)
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { PORT: null, WORKTREE_PORTS_PORT: null })
 })
+
+// --- WORKTREE_PORTS_ACTIVE ---
+
+test('exec sets WORKTREE_PORTS_ACTIVE=1 for the child, replacing any inherited value', async (t) => {
+  const repo = repoWithConfig(t)
+  const file = join(repo.dir, 'env.json')
+  const { io } = capture(repo.main, { WORKTREE_PORTS_ACTIVE: '0' })
+  assert.equal(await run(['exec', ...dumpEnvArgs(file, 'WORKTREE_PORTS_ACTIVE')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { WORKTREE_PORTS_ACTIVE: '1' })
+})
+
+test('exec sets WORKTREE_PORTS_ACTIVE=1 even under WORKTREE_PORTS=off and with no config', async (t) => {
+  const repo = repoWithConfig(t)
+  const off = join(repo.dir, 'off.json')
+  const { io } = capture(repo.main, { WORKTREE_PORTS: 'off' })
+  assert.equal(await run(['exec', ...dumpEnvArgs(off, 'WORKTREE_PORTS_ACTIVE', 'PORT')], io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(off, 'utf8')), { WORKTREE_PORTS_ACTIVE: '1', PORT: null })
+
+  const dir = noConfigDir(t)
+  const none = join(dir, 'none.json')
+  const nc = capture(dir)
+  assert.equal(await run(['exec', ...dumpEnvArgs(none, 'WORKTREE_PORTS_ACTIVE')], nc.io), 0)
+  assert.deepEqual(JSON.parse(readFileSync(none, 'utf8')), { WORKTREE_PORTS_ACTIVE: '1' })
+})
+
+test('env does not print WORKTREE_PORTS_ACTIVE', async (t) => {
+  const repo = repoWithConfig(t)
+  const { io, out } = capture(repo.main)
+  assert.equal(await run(['env', '--port', 'web'], io), 0)
+  assert.ok(!out.some((l) => l.includes('WORKTREE_PORTS_ACTIVE')), out.join('\n'))
+})

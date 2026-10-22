@@ -23,3 +23,5 @@ follows [Semantic Versioning](https://semver.org/).
 - `WORKTREE_PORTS_PORT`, set by `exec --port` to mark the `PORT` it gave, so a nested `exec --port` can replace its
   own `PORT` without overwriting one a person or CI pinned.
 - `exec -v` / `--verbose` prints which variables the tool set or kept, never the rest of the environment.
+- `WORKTREE_PORTS_ACTIVE=1`, set by `exec` in every child, so a launcher that re-runs itself under `exec` can
+  avoid recursing.

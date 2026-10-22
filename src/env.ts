@@ -45,6 +45,9 @@ export function mergeEnv(base: Record<string, string | undefined>, values: Recor
   return { env, applied, kept }
 }
 
+/** Set to `1` in every child `exec` starts, even when it adds nothing else (spec §8), so a launcher can tell it is wrapped. */
+export const ACTIVE_MARKER = 'WORKTREE_PORTS_ACTIVE'
+
 /** The variable `--port` sets alongside `PORT`, so a nested `exec --port` can tell its own `PORT` from a pinned one. */
 export const PORT_MARKER = 'WORKTREE_PORTS_PORT'
 
