@@ -73,7 +73,19 @@ try {
   for (const dir of [main, linked]) {
     const out = run('npx', ['worktree-ports', 'env'], dir)
     check(out.includes('export'), `env output should contain "export" in ${dir}:\n${out}`)
-    run('npx', ['worktree-ports', 'exec', '--', 'node', '-e', 'process.exit(process.env.PORT ? 0 : 1)'], dir)
+    // Run the installed bin without a shell: under `shell: true` on Windows the -e script would lose its quoting.
+    run(
+      process.execPath,
+      [
+        join(dir, 'node_modules', 'worktree-ports', 'dist', 'bin', 'worktree-ports.js'),
+        'exec',
+        '--',
+        'node',
+        '-e',
+        'process.exit(process.env.PORT ? 0 : 1)',
+      ],
+      dir,
+    )
   }
 
   const claims = JSON.parse(run('npx', ['worktree-ports', 'list', '--json'], linked))
