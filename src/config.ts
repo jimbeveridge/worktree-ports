@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { PortRange } from './settings.ts'
 
@@ -166,7 +166,7 @@ export function findConfig(cwd: string = process.cwd()): string | undefined {
   let dir = realpathSync(resolve(cwd))
   for (;;) {
     const candidate = join(dir, CONFIG_FILE_NAME)
-    if (existsSync(candidate)) return realpathSync(candidate)
+    if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return realpathSync(candidate)
     const parent = dirname(dir)
     if (parent === dir) return undefined
     dir = parent

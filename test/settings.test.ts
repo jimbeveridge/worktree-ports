@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { DEFAULT_RANGE, SettingsError, loadSettings, settingsPath, stateDir } from '../src/settings.ts'
 
 const tmp = realpathSync(tmpdir())
@@ -32,6 +32,12 @@ test('stateDir refuses a path outside the temp dir under test', () => {
     () => stateDir({ ...env, WORKTREE_PORTS_STATE_DIR: join(tmp, '..', 'elsewhere') }, 'linux'),
     /not under/,
   )
+})
+
+test('the guard compares the real path even when a top-level ancestor does not exist', () => {
+  const env = { WORKTREE_PORTS_UNDER_TEST: '1' }
+  const mangled = join(sep, `z${tmp.split(sep)[1]}`, ...tmp.split(sep).slice(2), 'x')
+  assert.throws(() => stateDir({ ...env, WORKTREE_PORTS_STATE_DIR: mangled }, 'linux'), /not under/)
 })
 
 test('settingsPath honours XDG_CONFIG_HOME, then ~/.config, and APPDATA on win32', () => {

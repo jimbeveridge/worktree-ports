@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, win32 } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
 
 export interface PortRange {
   min: number
@@ -43,13 +43,13 @@ function guardUnderTest(path: string, env: NodeJS.ProcessEnv, what: string): str
     } catch {
       const parent = resolve(existing, '..')
       if (parent === existing) break
-      tail.unshift(existing.slice(parent.length + 1))
+      tail.unshift(basename(existing))
       existing = parent
     }
   }
   const real = join(existing, ...tail)
   const rel = relative(tmp, real)
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new Error(`refusing to use ${what} ${path} while WORKTREE_PORTS_UNDER_TEST=1: it is not under ${tmp}`)
   }
   return path
