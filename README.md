@@ -96,7 +96,8 @@ starting point.
 - [ ] **Find every port.** Search the repository for the port numbers your servers use (`8080`, `3000`, ...) in source,
       scripts, `.env` files, proxy and CORS settings, and test configs (Playwright `webServer` and `baseURL`, for
       example). Each server that listens becomes a service; everything else is a value built from one. Leave
-      container-internal ports, deployment config, docs and saved request collections on the defaults.
+      container-internal ports, Docker Compose files (see [the limitation](#faq-and-limitations)), deployment config,
+      docs and saved request collections on the defaults.
 - [ ] **Declare the services.** Add `worktree-ports.json` at the repository root with one entry per listening server.
       Set each `default` to the port it uses today, so the main checkout and CI keep running on it. Give each a distinct
       `offset`. See the [configuration reference](#configuration-reference).
@@ -122,10 +123,6 @@ starting point.
       to the default ports. A launcher that starts its server with `--port` should use a variable of its own instead,
       since under an outer `exec` (a wrapped test run, say) `WORKTREE_PORTS_ACTIVE` is already set and it would skip
       its `--port`.
-- [ ] **If you run Docker Compose in worktrees, wrap it too.** Host ports in a Compose file (`"8080:8080"`) collide like
-      any others. Render a port-only variable (`"API_PORT": "{api}"`), make the host side use it
-      (`"${API_PORT:-8080}:8080"`), and run `worktree-ports exec -- docker compose up`. Skip this if Compose is not
-      part of your worktree workflow.
 - [ ] **Check what could override it.** `exec` never overwrites a variable that is already set, so anything that sets a
       port variable first wins. Remove port variables exported in shell profiles. In your own start scripts, replace
       `export API_PORT=8080` with `export API_PORT="${API_PORT:-8080}"`. A `.env` loader that overrides the environment
@@ -581,6 +578,18 @@ Run `worktree-ports release` in that checkout and the next run claims a differen
 be told its partner backend's port in another repository's worktree. Set the partner's address by hand, for example
 `API_ORIGIN=http://127.0.0.1:27420`. `exec` never overwrites a variable that is already set, so the value you export
 wins over the config.
+
+**After integrating, I get a firewall prompt (or a server is reachable from my network). What do I do?** `PORT` carries
+only a port, no host, and many servers given only a port listen on all interfaces, including your network address. That
+is what triggers the firewall prompt. Don't start that server with `--port`. Instead, render a full loopback address
+under a variable only that server reads, such as `"API_ADDR": "127.0.0.1:{api}"` in the config's `env`, and have the
+server listen on it. See the integration checklist's step on
+[choosing how each server gets its port](#integration-checklist).
+
+**Docker Compose.** Host port mappings (`"8080:8080"`) are fixed, so two checkouts running `compose up` at once, or one
+running Compose while another runs native servers, collide on the host with "port is already allocated". Ports inside
+the containers never collide. Run Compose in one checkout at a time. Per-checkout host ports are an open design
+question; feedback is welcome.
 
 **Loopback only.** Probes and checks use `127.0.0.1` and `::1`. The tool does not manage ports on other interfaces.
 
