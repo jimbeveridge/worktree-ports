@@ -7,6 +7,8 @@ export { LockTimeoutError, withLock } from './lock.ts'
 export type { LockOptions } from './lock.ts'
 export { claimsDir, deleteClaim, inRange, localDate, readAllClaims, readClaims, writeClaim } from './store.ts'
 export type { Claim } from './store.ts'
+export { RegistryFullError, claimBlock, lookupClaim } from './claim.ts'
+export type { ClaimHooks, ClaimOwner, ClaimResult } from './claim.ts'
 export { collectStale, parseDuration, pruneCandidates, staleReason } from './cleanup.ts'
 export type { PruneOptions, Removal, StaleReason } from './cleanup.ts'
 
